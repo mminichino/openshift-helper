@@ -1,0 +1,84 @@
+---
+# tasks file for ignition-config
+- set_fact:
+    ignition_bootstrap: "{{ lookup('file', file.bootstrap) }}"
+- set_fact:
+    ignition_master: "{{ lookup('file', file.master) }}"
+- set_fact:
+    ignition_worker: "{{ lookup('file', file.worker) }}"
+- name: Set guestinfo.ignition.config.data for RHCOS-bootstrap
+  vmware_guest:
+    hostname: "{{ vsphere.hostname }}"
+    username: "{{ vsphere.username }}"
+    password: "{{ vsphere.password }}"
+    validate_certs: no
+    folder: "{{ vsphere.folder }}"
+    name: "rhcos-bootstrap"
+    customvalues:
+    - key: guestinfo.ignition.config.data
+      value: "{{ ignition_bootstrap }}"
+  delegate_to: localhost
+  register: deploy_bootstrap
+- name: Set guestinfo.ignition.config.data for RHCOS-master
+  vmware_guest:
+    hostname: "{{ vsphere.hostname }}"
+    username: "{{ vsphere.username }}"
+    password: "{{ vsphere.password }}"
+    validate_certs: no
+    folder: "{{ vsphere.folder }}"
+    name: "rhcos-master"
+    customvalues:
+    - key: guestinfo.ignition.config.data
+      value: "{{ ignition_master }}"
+  delegate_to: localhost
+  register: deploy_master
+- name: Set guestinfo.ignition.config.data for RHCOS-worker
+  vmware_guest:
+    hostname: "{{ vsphere.hostname }}"
+    username: "{{ vsphere.username }}"
+    password: "{{ vsphere.password }}"
+    validate_certs: no
+    folder: "{{ vsphere.folder }}"
+    name: "rhcos-worker"
+    customvalues:
+    - key: guestinfo.ignition.config.data
+      value: "{{ ignition_worker }}"
+  delegate_to: localhost
+  register: deploy_worker
+#
+- name: Create bootstrap template
+  community.vmware.vmware_guest:
+    hostname: "{{ vsphere.hostname }}"
+    username: "{{ vsphere.username }}"
+    password: "{{ vsphere.password }}"
+    validate_certs: no
+    folder: "{{ vsphere.folder }}"
+    datacenter: "{{ vsphere.datacenter }}"
+    name: "rhcos-bootstrap"
+    is_template: yes
+  delegate_to: localhost
+  register: bootstrap_vm
+- name: Create master template
+  community.vmware.vmware_guest:
+    hostname: "{{ vsphere.hostname }}"
+    username: "{{ vsphere.username }}"
+    password: "{{ vsphere.password }}"
+    validate_certs: no
+    folder: "{{ vsphere.folder }}"
+    datacenter: "{{ vsphere.datacenter }}"
+    name: "rhcos-master"
+    is_template: yes
+  delegate_to: localhost
+  register: master_vm
+- name: Create worker template
+  community.vmware.vmware_guest:
+    hostname: "{{ vsphere.hostname }}"
+    username: "{{ vsphere.username }}"
+    password: "{{ vsphere.password }}"
+    validate_certs: no
+    folder: "{{ vsphere.folder }}"
+    datacenter: "{{ vsphere.datacenter }}"
+    name: "rhcos-worker"
+    is_template: yes
+  delegate_to: localhost
+  register: worker_vm

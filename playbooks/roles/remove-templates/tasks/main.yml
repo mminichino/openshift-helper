@@ -1,0 +1,41 @@
+---
+# tasks file for remove-templates
+- name: Remove bootstrap VM
+  community.vmware.vmware_guest:
+    hostname: "{{ vsphere.hostname }}"
+    username: "{{ vsphere.username }}"
+    password: "{{ vsphere.password }}"
+    validate_certs: no
+    folder: "{{ vsphere.folder }}"
+    datacenter: "{{ vsphere.datacenter }}"
+    name: "rhcos-bootstrap"
+    template: "{{ core_template }}"
+    state: absent
+  delegate_to: localhost
+  register: bootstrap_vm
+- name: Remove master VM
+  community.vmware.vmware_guest:
+    hostname: "{{ vsphere.hostname }}"
+    username: "{{ vsphere.username }}"
+    password: "{{ vsphere.password }}"
+    validate_certs: no
+    folder: "{{ vsphere.folder }}"
+    datacenter: "{{ vsphere.datacenter }}"
+    name: "rhcos-master"
+    template: "{{ core_template }}"
+    state: absent
+  delegate_to: localhost
+  register: master_vm
+- name: Remove worker VM
+  community.vmware.vmware_guest:
+    hostname: "{{ vsphere.hostname }}"
+    username: "{{ vsphere.username }}"
+    password: "{{ vsphere.password }}"
+    validate_certs: no
+    folder: "{{ vsphere.folder }}"
+    datacenter: "{{ vsphere.datacenter }}"
+    name: "rhcos-worker"
+    template: "{{ core_template }}"
+    state: absent
+  delegate_to: localhost
+  register: worker_vm

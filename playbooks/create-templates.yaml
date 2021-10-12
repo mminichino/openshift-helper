@@ -1,0 +1,19 @@
+---
+#
+# var:vmware_host
+# var:vmware_user
+# var:vmware_password
+# var:vsphere_password
+# var:vmware_folder
+# var:vmware_dc
+# var:config_dir
+# var:root_template
+# var:dir
+#
+- name: Greate Templates
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - remove-templates
+    - create-templates
+    - ignition-config

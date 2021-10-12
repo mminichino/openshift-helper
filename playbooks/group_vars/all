@@ -1,0 +1,13 @@
+vsphere:
+  hostname: "{{ vmware_host if vmware_host is defined else 'vcsa' }}"
+  username: "{{ vmware_user if vmware_user is defined else 'administrator@vsphere.local' }}"
+  password: "{{ ask_password if ask_password is defined else lookup('vars',vmware_password) if vmware_password is defined else vsphere_password if vsphere_password is defined }}"
+  folder: "{{ vmware_folder if vmware_folder is defined else '' }}"
+  datacenter: "{{ vmware_dc if vmware_dc is defined else '' }}"
+  dvs: "{{ vmware_dvs if vmware_dvs is defined else '' }}"
+config_dir: "{{ dir if dir is defined else lookup('env','HOME') + '/oslab' }}"
+core_template: "{{ root_template if root_template is defined else 'rhcos-template' }}"
+file:
+  bootstrap: "{{ config_dir + '/bootstrap.64' }}"
+  master: "{{ config_dir + '/master.64' }}"
+  worker: "{{ config_dir + '/worker.64' }}"

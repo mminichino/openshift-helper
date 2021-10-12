@@ -1,0 +1,53 @@
+---
+# tasks file for create-templates
+- name: Create folder
+  community.vmware.vcenter_folder:
+    hostname: "{{ vsphere.hostname }}"
+    username: "{{ vsphere.username }}"
+    password: "{{ vsphere.password }}"
+    datacenter_name: "{{ vsphere.datacenter }}"
+    folder_name: "{{ vsphere.folder }}"
+    folder_type: vm
+    state: present
+  register: cluster_folder
+  delegate_to: localhost
+#
+- name: Create bootstrap VM
+  community.vmware.vmware_guest:
+    hostname: "{{ vsphere.hostname }}"
+    username: "{{ vsphere.username }}"
+    password: "{{ vsphere.password }}"
+    validate_certs: no
+    folder: "{{ vsphere.folder }}"
+    datacenter: "{{ vsphere.datacenter }}"
+    name: "rhcos-bootstrap"
+    template: "{{ core_template }}"
+    state: poweredoff
+  delegate_to: localhost
+  register: bootstrap_vm
+- name: Create master VM
+  community.vmware.vmware_guest:
+    hostname: "{{ vsphere.hostname }}"
+    username: "{{ vsphere.username }}"
+    password: "{{ vsphere.password }}"
+    validate_certs: no
+    folder: "{{ vsphere.folder }}"
+    datacenter: "{{ vsphere.datacenter }}"
+    name: "rhcos-master"
+    template: "{{ core_template }}"
+    state: poweredoff
+  delegate_to: localhost
+  register: master_vm
+- name: Create worker VM
+  community.vmware.vmware_guest:
+    hostname: "{{ vsphere.hostname }}"
+    username: "{{ vsphere.username }}"
+    password: "{{ vsphere.password }}"
+    validate_certs: no
+    folder: "{{ vsphere.folder }}"
+    datacenter: "{{ vsphere.datacenter }}"
+    name: "rhcos-worker"
+    template: "{{ core_template }}"
+    state: poweredoff
+  delegate_to: localhost
+  register: worker_vm

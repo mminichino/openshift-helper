@@ -12,6 +12,7 @@ import yaml
 import dns.resolver
 import re
 import dns.reversename
+import getpass
 
 class osConfig(object):
 
@@ -27,6 +28,8 @@ class osConfig(object):
             self.getVarValue()
         elif self.cfgFile:
             self.generateConfigs()
+        elif self.nsxCfgFile:
+            self.generateNsxConfig()
 
     def generateConfigs(self):
         variableJson = {}
@@ -56,13 +59,13 @@ class osConfig(object):
                     if key == 'metadata':
                         variableJson['variable'].update({'cluster_name': {'default': cfgYaml['metadata']['name']}})
 
-                    variableJson['variable'].update({'master_spec': {}})
-                    variableJson['variable']['master_spec']['type'] = 'map'
-                    variableJson['variable']['master_spec']['default'] = {}
+                variableJson['variable'].update({'master_spec': {}})
+                variableJson['variable']['master_spec']['type'] = 'map'
+                variableJson['variable']['master_spec']['default'] = {}
 
-                    variableJson['variable'].update({'worker_spec': {}})
-                    variableJson['variable']['worker_spec']['type'] = 'map'
-                    variableJson['variable']['worker_spec']['default'] = {}
+                variableJson['variable'].update({'worker_spec': {}})
+                variableJson['variable']['worker_spec']['type'] = 'map'
+                variableJson['variable']['worker_spec']['default'] = {}
 
                 domain = variableJson['variable']['cluster_name']['default'] + '.' + variableJson['variable']['domain_name']['default']
                 try:
@@ -123,16 +126,101 @@ class osConfig(object):
         variableJson = {}
         variableJson['variable'] = {}
         variableSaveFile = self.outputDir + '/variables.tf.json'
+        foundMaster = False
+        foundWorker = False
+        foundBootstrap = False
+
+        useranswer = input("NSX Admin User: ")
+        useranswer = useranswer.rstrip("\n")
+
+        passanswer = getpass.getpass()
+        passanswer = passanswer.rstrip("\n")
+
+        mgranswer = input("NSX Manager: ")
+        mgranswer = mgranswer.rstrip("\n")
+
+        gwName = input("T1 Gateway Name: ")
+        gwName = gwName.rstrip("\n")
+
+        try:
+            with open(self.nsxCfgFile, 'r') as cfgYamlFile:
+                cfgYaml = yaml.safe_load(cfgYamlFile)
+                for key in cfgYaml:
+                    if key == 'platform':
+                        variableJson['variable'].update({'api_vip': {'default': cfgYaml['platform']['vsphere']['apiVIP']}})
+                        variableJson['variable'].update({'apps_vip': {'default': cfgYaml['platform']['vsphere']['ingressVIP']}})
+                    if key == 'baseDomain':
+                        variableJson['variable'].update({'domain_name': {'default': cfgYaml['baseDomain']}})
+                    if key == 'metadata':
+                        variableJson['variable'].update({'cluster_name': {'default': cfgYaml['metadata']['name']}})
+
+                variableJson['variable'].update({'nsxt_user': {'default': useranswer}})
+                variableJson['variable'].update({'nsxt_password': {'default': passanswer}})
+                variableJson['variable'].update({'nsxt_manager': {'default': mgranswer}})
+                variableJson['variable'].update({'gateway_name': {'default': gwName}})
+
+                domain = variableJson['variable']['cluster_name']['default'] + '.' + variableJson['variable']['domain_name']['default']
+                try:
+                    soa_answer = dns.resolver.query(domain, "SOA", tcp=True)
+                    soa_host = soa_answer[0].mname
+
+                    master_answer = dns.resolver.query(soa_host, "A", tcp=True)
+                    master_addr = master_answer[0].address
+
+                    xfr_answer = dns.query.xfr(master_addr, domain)
+                    zone = dns.zone.from_xfr(xfr_answer)
+
+                    variableJson['variable'].update({'master_list': {}})
+                    variableJson['variable']['master_list']['type'] = 'list(string)'
+                    variableJson['variable']['master_list']['default'] = []
+                    variableJson['variable'].update({'worker_list': {}})
+                    variableJson['variable']['worker_list']['type'] = 'list(string)'
+                    variableJson['variable']['worker_list']['default'] = []
+                    for name, ttl, rdata in zone.iterate_rdatas("A"):
+                        pattern = re.compile("^master[0-9]+$")
+                        if pattern.match(name.to_text()):
+                            foundMaster = True
+                            variableJson['variable']['master_list']['default'].append(rdata.to_text())
+                        pattern = re.compile("^bootstrap$")
+                        if pattern.match(name.to_text()):
+                            foundBootstrap = True
+                            variableJson['variable']['master_list']['default'].append(rdata.to_text())
+                        pattern = re.compile("^worker[0-9]+$")
+                        if pattern.match(name.to_text()):
+                            foundWorker = True
+                            variableJson['variable']['worker_list']['default'].append(rdata.to_text())
+
+                except Exception as e:
+                    print("Could not query domain %s: %s" % (domain, str(e)))
+                    sys.exit(1)
+
+                if not foundMaster or not foundWorker or not foundBootstrap:
+                    print("Could not find all required nodes for domain %s." % domain)
+                    sys.exit(1)
+
+                try:
+                    with open(variableSaveFile, 'w') as saveFile:
+                        json.dump(variableJson, saveFile, indent=4)
+                        saveFile.write("\n")
+                        saveFile.close()
+                except OSError as e:
+                        print("Could not write variable file: %s" % str(e))
+                        sys.exit(1)
+        except OSError as e:
+            print("Can not open install config file: %s" % str(e))
+            sys.exit(1)
 
     def parse_args(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('--file', action='store')
         parser.add_argument('--dir', action='store')
         parser.add_argument('--get', action='store')
+        parser.add_argument('--nsx', action='store')
         self.args = parser.parse_args()
         self.cfgFile = self.args.file
         self.outputDir = self.args.dir
         self.getValue = self.args.get
+        self.nsxCfgFile = self.args.nsx
 
 def main():
     osConfig()

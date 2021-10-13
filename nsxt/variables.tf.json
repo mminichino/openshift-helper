@@ -1,0 +1,44 @@
+{
+    "variable": {
+        "domain_name": {
+            "default": "unix.us.com"
+        },
+        "cluster_name": {
+            "default": "oslab"
+        },
+        "api_vip": {
+            "default": "10.48.1.11"
+        },
+        "apps_vip": {
+            "default": "10.48.1.10"
+        },
+        "nsxt_user": {
+            "default": "admin"
+        },
+        "nsxt_password": {
+            "default": "Passw0rd!Pass"
+        },
+        "nsxt_manager": {
+            "default": "172.16.1.80"
+        },
+        "gateway_name": {
+            "default": "t1-lab-gw"
+        },
+        "master_list": {
+            "type": "list(string)",
+            "default": [
+                "10.48.1.19",
+                "10.48.1.20"
+            ]
+        },
+        "worker_list": {
+            "type": "list(string)",
+            "default": [
+                "10.48.1.21",
+                "10.48.1.22",
+                "10.48.1.23",
+                "10.48.1.24"
+            ]
+        }
+    }
+}

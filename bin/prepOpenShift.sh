@@ -22,7 +22,7 @@ if [ $? -ne 0 ]; then
    exit 1
 fi
 
-while getopts "sce:d:t:" opt
+while getopts "sce:d:t:w" opt
 do
   case $opt in
     t)
@@ -43,6 +43,14 @@ do
     d)
       BASEDIR=$OPTARG
       CFGDIR=${BASEDIR}/${ENVNAME}
+      ;;
+    w)
+      echo -n "Wipe install directory? [y/n]: "
+      read ANSWER
+      if [ "$ANSWER" == "y" ]; then
+        rm -rvf ${CFGDIR}/*
+      fi
+      exit
       ;;
     \?)
       exit 1
@@ -181,6 +189,12 @@ if [ "$RUNSTEP" -eq 1 ]; then
     echo "Could not create ignition configs."
     exit 1
   fi
+  INFRA_ID=$(jq -r .infraID ${CFGDIR}/metadata.json)
+  $SCRIPTDIR/tfConfig.py --set infra_id --value $INFRA_ID --dir ${PKGROOT}/terraform
+  if [ $? -ne 0 ]; then
+    echo "Could not update variables file with infrastructure ID."
+    exit 1
+  fi
   echo "Done."
 fi
 
@@ -221,7 +235,7 @@ if [ "$RUNSTEP" -eq 1 ]; then
   VMWARE_PASSWORD=$($SCRIPTDIR/tfConfig.py --get vsphere_password --dir ${PKGROOT}/terraform)
   VMWARE_FOLDER=$($SCRIPTDIR/tfConfig.py --get cluster_name --dir ${PKGROOT}/terraform)
   VMWARE_DATACENTER=$($SCRIPTDIR/tfConfig.py --get vsphere_datacenter --dir ${PKGROOT}/terraform)
-  ansible-helper.py create-templates.yaml --vmware_host $VMWARE_HOST --vmware_user $VMWARE_USER --vsphere_password $VMWARE_PASSWORD --vmware_folder $VMWARE_FOLDER --vmware_dc $VMWARE_DATACENTER --dir ${CFGDIR}
+  ansible-helper.py create-templates.yaml --vmware_host $VMWARE_HOST --vmware_user $VMWARE_USER --vsphere_password $VMWARE_PASSWORD --vmware_folder $VMWARE_FOLDER --vmware_dc $VMWARE_DATACENTER --dir $CFGDIR
 fi
 
 echo "Done."

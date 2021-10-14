@@ -17,6 +17,10 @@
     customvalues:
     - key: guestinfo.ignition.config.data
       value: "{{ ignition_bootstrap }}"
+    - key: guestinfo.ignition.config.data.encoding
+      value: base64
+    - key: disk.EnableUUID
+      value: "TRUE"
   delegate_to: localhost
   register: deploy_bootstrap
 - name: Set guestinfo.ignition.config.data for RHCOS-master
@@ -30,6 +34,10 @@
     customvalues:
     - key: guestinfo.ignition.config.data
       value: "{{ ignition_master }}"
+    - key: guestinfo.ignition.config.data.encoding
+      value: base64
+    - key: disk.EnableUUID
+      value: "TRUE"
   delegate_to: localhost
   register: deploy_master
 - name: Set guestinfo.ignition.config.data for RHCOS-worker
@@ -43,6 +51,10 @@
     customvalues:
     - key: guestinfo.ignition.config.data
       value: "{{ ignition_worker }}"
+    - key: guestinfo.ignition.config.data.encoding
+      value: base64
+    - key: disk.EnableUUID
+      value: "TRUE"
   delegate_to: localhost
   register: deploy_worker
 #

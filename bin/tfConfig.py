@@ -30,13 +30,21 @@ class osConfig(object):
             self.generateConfigs()
         elif self.nsxCfgFile:
             self.generateNsxConfig()
+        elif self.setKey:
+            if self.setValue:
+                self.updateConfig()
 
     def generateConfigs(self):
         variableJson = {}
         variableJson['variable'] = {}
         variableSaveFile = self.outputDir + '/variables.tf.json'
+        networkMask = 24
         foundMaster = False
         foundWorker = False
+        foundBootstrap = False
+
+        switchName = input("Virtual Switch: ")
+        switchName = switchName.rstrip("\n")
 
         try:
             with open(self.cfgFile, 'r') as cfgYamlFile:
@@ -59,6 +67,12 @@ class osConfig(object):
                     if key == 'metadata':
                         variableJson['variable'].update({'cluster_name': {'default': cfgYaml['metadata']['name']}})
 
+                variableJson['variable'].update({'vsphere_dvs_switch': {'default': switchName}})
+
+                variableJson['variable'].update({'bootstrap_spec': {}})
+                variableJson['variable']['bootstrap_spec']['type'] = 'map'
+                variableJson['variable']['bootstrap_spec']['default'] = {}
+
                 variableJson['variable'].update({'master_spec': {}})
                 variableJson['variable']['master_spec']['type'] = 'map'
                 variableJson['variable']['master_spec']['default'] = {}
@@ -66,6 +80,9 @@ class osConfig(object):
                 variableJson['variable'].update({'worker_spec': {}})
                 variableJson['variable']['worker_spec']['type'] = 'map'
                 variableJson['variable']['worker_spec']['default'] = {}
+
+                networkMask = cfgYaml['networking']['machineNetwork'][0]['cidr']
+                networkMask = networkMask.split('/')[1]
 
                 domain = variableJson['variable']['cluster_name']['default'] + '.' + variableJson['variable']['domain_name']['default']
                 try:
@@ -84,17 +101,28 @@ class osConfig(object):
                             foundMaster = True
                             variableJson['variable']['master_spec']['default'].update({name.to_text(): {}})
                             variableJson['variable']['master_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
+                            variableJson['variable']['master_spec']['default'][name.to_text()].update({'ip_mask': networkMask})
+                            variableJson['variable']['master_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
+                        pattern = re.compile("^bootstrap$")
+                        if pattern.match(name.to_text()):
+                            foundBootstrap = True
+                            variableJson['variable']['bootstrap_spec']['default'].update({name.to_text(): {}})
+                            variableJson['variable']['bootstrap_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
+                            variableJson['variable']['bootstrap_spec']['default'][name.to_text()].update({'ip_mask': networkMask})
+                            variableJson['variable']['bootstrap_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
                         pattern = re.compile("^worker[0-9]+$")
                         if pattern.match(name.to_text()):
                             foundWorker = True
                             variableJson['variable']['worker_spec']['default'].update({name.to_text(): {}})
                             variableJson['variable']['worker_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
+                            variableJson['variable']['worker_spec']['default'][name.to_text()].update({'ip_mask': networkMask})
+                            variableJson['variable']['worker_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
                 except Exception as e:
                     print("Could not query domain %s: %s" % (domain, str(e)))
                     sys.exit(1)
 
-                if not foundMaster or not foundWorker:
-                    print("Could not find nodes for domain %s." % domain)
+                if not foundMaster or not foundWorker or not foundBootstrap:
+                    print("Could not find all required nodes for domain %s." % domain)
                     sys.exit(1)
 
                 try:
@@ -210,17 +238,45 @@ class osConfig(object):
             print("Can not open install config file: %s" % str(e))
             sys.exit(1)
 
+    def updateConfig(self):
+        variableFile = self.outputDir + '/variables.tf.json'
+        varFileJson = {}
+
+        try:
+            with open(variableFile, 'r') as varFile:
+                varFileJson = json.load(varFile)
+            varFile.close()
+        except OSError as e:
+            print("Can not open variable file: %s" % str(e))
+            sys.exit(1)
+
+        varFileJson['variable'].update({self.setKey: {}})
+        varFileJson['variable'][self.setKey]['default'] = self.setValue
+
+        try:
+            with open(variableFile, 'w') as varFile:
+                json.dump(varFileJson, varFile, indent=4)
+                varFile.write("\n")
+                varFile.close()
+        except OSError as e:
+            print("Can not open variable file: %s" % str(e))
+            sys.exit(1)
+
     def parse_args(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('--file', action='store')
         parser.add_argument('--dir', action='store')
         parser.add_argument('--get', action='store')
         parser.add_argument('--nsx', action='store')
+        parser.add_argument('--set', action='store')
+        parser.add_argument('--value', action='store')
         self.args = parser.parse_args()
         self.cfgFile = self.args.file
         self.outputDir = self.args.dir
         self.getValue = self.args.get
         self.nsxCfgFile = self.args.nsx
+        self.setKey = self.args.set
+        self.setValue = self.args.value
 
 def main():
     osConfig()

@@ -16,4 +16,4 @@ vendor
 .test-data
 packer-build.log
 .terraform.lock.hcl
-.tf.json
+variables.tf.json

@@ -81,31 +81,12 @@ if [ "$RUNSTEP" -eq 1 ]; then
     exit 1
   fi
   echo -n "Copying install config to install directory ... "
-  cp ${HOME}/${TEMPLATE} ${CFGDIR}/install-config.yaml
+  cp ${HOME}/${TEMPLATE} ${CFGDIR}/install-config.yaml && cp ${HOME}/${TEMPLATE} ${CFGDIR}/.install-config-copy.yaml
   if [ $? -ne 0 ]; then
     echo "Could not copy install config file."
     exit 1
   fi
   echo "Done."
-fi
-
-if [ "$STEP" -eq 1 ]
-then
-  echo -n "Generate Terraform variables file? [y/n]: "
-  read ANSWER
-  if [ "$ANSWER" = "y" ]; then
-     RUNSTEP=1
-  else
-     RUNSTEP=0
-  fi
-fi
-
-if [ "$RUNSTEP" -eq 1 ]; then
-  $SCRIPTDIR/tfConfig.py --file ${CFGDIR}/install-config.yaml --dir ${PKGROOT}/terraform --install ${CFGDIR}
-  if [ $? -ne 0 ]; then
-    echo "Could not create Terraform variables file."
-    exit 1
-  fi
 fi
 
 if [ "$STEP" -eq 1 ]
@@ -190,11 +171,6 @@ if [ "$RUNSTEP" -eq 1 ]; then
     exit 1
   fi
   INFRA_ID=$(jq -r .infraID ${CFGDIR}/metadata.json)
-  $SCRIPTDIR/tfConfig.py --set infra_id --value $INFRA_ID --dir ${PKGROOT}/terraform
-  if [ $? -ne 0 ]; then
-    echo "Could not update variables file with infrastructure ID."
-    exit 1
-  fi
   echo "Done."
 fi
 
@@ -215,6 +191,25 @@ if [ "$RUNSTEP" -eq 1 ]; then
   base64 -w0 ${CFGDIR}/worker.ign > ${CFGDIR}/worker.64
   base64 -w0 ${CFGDIR}/bootstrap.ign > ${CFGDIR}/bootstrap.64
   echo "Done."
+fi
+
+if [ "$STEP" -eq 1 ]
+then
+  echo -n "Generate Terraform variables file? [y/n]: "
+  read ANSWER
+  if [ "$ANSWER" = "y" ]; then
+     RUNSTEP=1
+  else
+     RUNSTEP=0
+  fi
+fi
+
+if [ "$RUNSTEP" -eq 1 ]; then
+  $SCRIPTDIR/tfConfig.py --file ${CFGDIR}/.install-config-copy.yaml --dir ${PKGROOT}/terraform --install ${CFGDIR} --id $INFRA_ID
+  if [ $? -ne 0 ]; then
+    echo "Could not create Terraform variables file."
+    exit 1
+  fi
 fi
 
 if [ "$STEP" -eq 1 ]

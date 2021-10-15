@@ -16,6 +16,8 @@ import getpass
 import ipaddress
 from pyVim.connect import SmartConnectNoSSL, Disconnect
 from pyVmomi import vim, vmodl, VmomiSupport
+from jinja2 import Template
+import base64
 
 class osConfig(object):
 
@@ -30,10 +32,10 @@ class osConfig(object):
         if self.getValue:
             self.getVarValue()
         elif self.cfgFile:
-            if self.installDir:
+            if self.installDir and self.infraId:
                 self.generateConfigs()
             else:
-                print("Install directory required.")
+                print("Install directory and infrastructure ID are required.")
                 sys.exit(1)
         elif self.nsxCfgFile:
             self.generateNsxConfig()
@@ -41,11 +43,65 @@ class osConfig(object):
             if self.setValue:
                 self.updateConfig()
 
+    def updateIgn(self, hostname, role, prefix, address, domain, route, dns = []):
+        ignFile = self.installDir + '/' + role + '.ign'
+        outFile = self.installDir + '/' + hostname + '.ign'
+        storageBlock = {}
+        ifcfg = """TYPE=Ethernet
+BOOTPROTO=none
+NAME=ens192
+DEVICE=ens192
+ONBOOT=yes
+IPADDR={{ ip_address }}
+PREFIX={{ ip_prefix }}
+GATEWAY={{ gateway }}
+DOMAIN={{ domain_name }}
+{% for item in dns_list -%}
+DNS{{ loop.index }}={{ item }}{{ "
+" if not loop.last }}
+{%- endfor %}
+"""
+
+        t = Template(ifcfg)
+        ifcfgBlock = t.render(ip_address=address, ip_prefix=prefix, gateway=route, domain_name=domain, dns_list=dns)
+        block_bytes = ifcfgBlock.encode('ascii')
+        base64_bytes = base64.b64encode(block_bytes)
+
+        storageBlock['filesystem'] = 'root'
+        storageBlock['path'] = '/etc/sysconfig/network-scripts/ifcfg-ens192'
+        storageBlock['mode'] = 420
+        storageBlock['contents'] = {}
+        storageBlock['contents']['source'] = 'data:text/plain;charset=utf-8;base64,' + base64_bytes.decode('ascii')
+
+        try:
+            with open(ignFile, 'r') as jsonFile:
+                ignData = json.load(jsonFile)
+            jsonFile.close()
+        except OSError as e:
+            print("Can not open ignition file: %s" % str(e))
+            sys.exit(1)
+
+        if 'storage' not in ignData:
+            ignData['storage'] = {}
+            ignData['storage']['files'] = []
+        ignData['storage']['files'].append(storageBlock)
+
+        try:
+            with open(outFile, 'w') as jsonFile:
+                json.dump(ignData, jsonFile, indent=2)
+                jsonFile.write("\n")
+                jsonFile.close()
+        except OSError as e:
+            print("Can not write to new ignition file: %s" % str(e))
+            sys.exit(1)
+
     def generateConfigs(self):
         variableJson = {}
         variableJson['variable'] = {}
         variableJson['variable'].update({'install_dir': {'default': self.installDir}})
+        variableJson['variable'].update({'infra_id': {'default': self.infraId}})
         variableSaveFile = self.outputDir + '/variables.tf.json'
+        envDomain = None
         foundMaster = False
         foundWorker = False
         foundBootstrap = False
@@ -157,18 +213,24 @@ class osConfig(object):
                             variableJson['variable']['master_spec']['default'].update({name.to_text(): {}})
                             variableJson['variable']['master_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
                             variableJson['variable']['master_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
+                            self.updateIgn(name.to_text(), 'master', str(machineNetwork.prefixlen), rdata.to_text(),
+                                           domain, defaultRouter, variableJson['variable']['ip_dns']['default'])
                         pattern = re.compile("^bootstrap$")
                         if pattern.match(name.to_text()):
                             foundBootstrap = True
                             variableJson['variable']['bootstrap_spec']['default'].update({name.to_text(): {}})
                             variableJson['variable']['bootstrap_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
                             variableJson['variable']['bootstrap_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
+                            self.updateIgn(name.to_text(), 'bootstrap', str(machineNetwork.prefixlen), rdata.to_text(),
+                                           domain, defaultRouter, variableJson['variable']['ip_dns']['default'])
                         pattern = re.compile("^worker[0-9]+$")
                         if pattern.match(name.to_text()):
                             foundWorker = True
                             variableJson['variable']['worker_spec']['default'].update({name.to_text(): {}})
                             variableJson['variable']['worker_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
                             variableJson['variable']['worker_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
+                            self.updateIgn(name.to_text(), 'worker', str(machineNetwork.prefixlen), rdata.to_text(),
+                                           domain, defaultRouter, variableJson['variable']['ip_dns']['default'])
                 except Exception as e:
                     print("Could not query domain %s: %s" % (domain, str(e)))
                     sys.exit(1)
@@ -323,6 +385,7 @@ class osConfig(object):
         parser.add_argument('--set', action='store')
         parser.add_argument('--value', action='store')
         parser.add_argument('--install', action='store')
+        parser.add_argument('--id', action='store')
         self.args = parser.parse_args()
         self.cfgFile = self.args.file
         self.outputDir = self.args.dir
@@ -331,6 +394,7 @@ class osConfig(object):
         self.setKey = self.args.set
         self.setValue = self.args.value
         self.installDir = self.args.install
+        self.infraId = self.args.id
 
 def main():
     osConfig()

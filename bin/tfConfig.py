@@ -101,10 +101,11 @@ DNS{{ loop.index }}={{ item }}{{ "
         variableJson['variable'].update({'install_dir': {'default': self.installDir}})
         variableJson['variable'].update({'infra_id': {'default': self.infraId}})
         variableSaveFile = self.outputDir + '/variables.tf.json'
-        envDomain = None
         foundMaster = False
         foundWorker = False
         foundBootstrap = False
+        masterCount = 0
+        workerCount = 0
 
         try:
             with open(self.cfgFile, 'r') as cfgYamlFile:
@@ -210,6 +211,7 @@ DNS{{ loop.index }}={{ item }}{{ "
                         pattern = re.compile("^master[0-9]+$")
                         if pattern.match(name.to_text()):
                             foundMaster = True
+                            masterCount = masterCount + 1
                             variableJson['variable']['master_spec']['default'].update({name.to_text(): {}})
                             variableJson['variable']['master_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
                             variableJson['variable']['master_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
@@ -226,11 +228,15 @@ DNS{{ loop.index }}={{ item }}{{ "
                         pattern = re.compile("^worker[0-9]+$")
                         if pattern.match(name.to_text()):
                             foundWorker = True
+                            workerCount = workerCount + 1
                             variableJson['variable']['worker_spec']['default'].update({name.to_text(): {}})
                             variableJson['variable']['worker_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
                             variableJson['variable']['worker_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
                             self.updateIgn(name.to_text(), 'worker', str(machineNetwork.prefixlen), rdata.to_text(),
                                            domain, defaultRouter, variableJson['variable']['ip_dns']['default'])
+
+                    variableJson['variable'].update({'master_count': {'default': masterCount}})
+                    variableJson['variable'].update({'worker_count': {'default': workerCount}})
                 except Exception as e:
                     print("Could not query domain %s: %s" % (domain, str(e)))
                     sys.exit(1)

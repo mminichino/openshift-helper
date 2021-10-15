@@ -2,9 +2,6 @@
 
 terraform {
   required_providers {
-    ignition = {
-      source = "terraform-providers/ignition"
-    }
     vsphere = {
       source = "hashicorp/vsphere"
     }
@@ -44,17 +41,17 @@ data "vsphere_network" "network" {
 }
 
 data "vsphere_virtual_machine" "bootstrap_template" {
-  name          = "rhcos-bootstrap"
+  name          = "rhcos-template"
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
 data "vsphere_virtual_machine" "master_template" {
-  name          = "rhcos-master"
+  name          = "rhcos-template"
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
 data "vsphere_virtual_machine" "worker_template" {
-  name          = "rhcos-worker"
+  name          = "rhcos-template"
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
@@ -79,117 +76,18 @@ data "vsphere_folder" "folder" {
 }
 
 data "local_file" "bootstrap_ignition" {
-  filename = "${var.install_dir}/bootstrap.ign"
+  for_each = var.bootstrap_spec
+  filename = "${var.install_dir}/${each.key}.ign"
 }
 
 data "local_file" "master_ignition" {
-  filename = "${var.install_dir}/master.ign"
+  for_each = var.master_spec
+  filename = "${var.install_dir}/${each.key}.ign"
 }
 
 data "local_file" "worker_ignition" {
-  filename = "${var.install_dir}/worker.ign"
-}
-
-#locals {
-#  bootstrap_encoded = "data:text/plain;charset=utf-8;base64,${base64encode(data.local_file.bootstrap_ignition)}"
-#}
-
-#locals {
-#  master_encoded = "data:text/plain;charset=utf-8;base64,${base64encode(data.local_file.master_ignition)}"
-#}
-
-#locals {
-#  worker_encoded = "data:text/plain;charset=utf-8;base64,${base64encode(data.local_file.worker_ignition)}"
-#}
-
-data "ignition_file" "bootstrap_ip" {
-  for_each = var.bootstrap_spec
-  path = "/etc/sysconfig/network-scripts/ifcfg-ens192"
-  mode = "420"
-  filesystem = "root"
-
-  content {
-    content = templatefile("${path.module}/ifcfg.tmpl", {
-      dns_addresses  = var.ip_dns,
-      ip_prefix      = var.ip_prefix
-      ip_address     = each.value.ip_address
-      cluster_domain = "${var.cluster_name}.${var.domain_name}"
-      gateway        = var.ip_route
-    })
-  }
-}
-
-data "ignition_file" "master_ip" {
-  for_each = var.master_spec
-  path     = "/etc/sysconfig/network-scripts/ifcfg-ens192"
-  mode     = "420"
-  filesystem = "root"
-
-  content {
-    content = templatefile("${path.module}/ifcfg.tmpl", {
-      dns_addresses  = var.ip_dns,
-      ip_prefix      = var.ip_prefix
-      ip_address     = each.value.ip_address
-      cluster_domain = "${var.cluster_name}.${var.domain_name}"
-      gateway        = var.ip_route
-    })
-  }
-}
-
-data "ignition_file" "worker_ip" {
   for_each = var.worker_spec
-  path     = "/etc/sysconfig/network-scripts/ifcfg-ens192"
-  mode     = "420"
-  filesystem = "root"
-
-  content {
-    content = templatefile("${path.module}/ifcfg.tmpl", {
-      dns_addresses  = var.ip_dns,
-      ip_prefix      = var.ip_prefix
-      ip_address     = each.value.ip_address
-      cluster_domain = "${var.cluster_name}.${var.domain_name}"
-      gateway        = var.ip_route
-    })
-  }
-}
-
-data "ignition_config" "bootstrap_ign" {
-  for_each = var.bootstrap_spec
-
-  append {
-    source = data.local_file.bootstrap_ignition.content
-  }
-
-  files = [
-#    data.ignition_file.hostname[each.key].rendered,
-    data.ignition_file.bootstrap_ip[each.key].rendered,
-  ]
-}
-
-data "ignition_config" "master_ign" {
-  for_each = var.master_spec
-
-  append {
-    source = data.local_file.master_ignition.content
-  }
-
-  files = [
-    #    data.ignition_file.hostname[each.key].rendered,
-    data.ignition_file.master_ip[each.key].rendered,
-  ]
-}
-
-data "ignition_config" "worker_ign" {
-  for_each = var.worker_spec
-
-  append {
-    source = data.local_file.worker_ignition.content
-  }
-
-  files = [
-    #    data.ignition_file.hostname[each.key].rendered,
-    data.ignition_file.worker_ip[each.key].rendered,
-  ]
+  filename = "${var.install_dir}/${each.key}.ign"
 }
 
 resource "vsphere_virtual_machine" "bootstrap_node" {
@@ -202,6 +100,7 @@ resource "vsphere_virtual_machine" "bootstrap_node" {
   guest_id         = data.vsphere_virtual_machine.bootstrap_template.guest_id
   scsi_type        = data.vsphere_virtual_machine.bootstrap_template.scsi_type
   folder           = data.vsphere_folder.folder.path
+  enable_disk_uuid = "true"
 
   wait_for_guest_net_timeout  = "0"
   wait_for_guest_net_routable = "false"
@@ -212,7 +111,7 @@ resource "vsphere_virtual_machine" "bootstrap_node" {
 
   disk {
     label = "disk0"
-    size = data.vsphere_virtual_machine.bootstrap_template.disks.0.size
+    size = 100
     thin_provisioned = data.vsphere_virtual_machine.bootstrap_template.disks.0.thin_provisioned
   }
 
@@ -221,7 +120,8 @@ resource "vsphere_virtual_machine" "bootstrap_node" {
   }
 
   extra_config = {
-    "guestinfo.ignition.config.data"           = base64encode(data.ignition_config.bootstrap_ign[each.key].rendered)
+    "guestinfo.ignition.config.data"           = base64encode(data.local_file.bootstrap_ignition[each.key].content)
+    "guestinfo.ignition.config.data.encoding"  = "base64"
     "guestinfo.afterburn.initrd.network-kargs" = "ip=${each.value.ip_address}::${var.ip_route}:${var.ip_mask}:${each.key}:ens192:off ${join(" ", formatlist("nameserver=%v", var.ip_dns))}"
   }
 
@@ -238,6 +138,7 @@ resource "vsphere_virtual_machine" "master_node" {
   guest_id         = data.vsphere_virtual_machine.master_template.guest_id
   scsi_type        = data.vsphere_virtual_machine.master_template.scsi_type
   folder           = data.vsphere_folder.folder.path
+  enable_disk_uuid = "true"
 
   wait_for_guest_net_timeout  = "0"
   wait_for_guest_net_routable = "false"
@@ -248,7 +149,7 @@ resource "vsphere_virtual_machine" "master_node" {
 
   disk {
     label = "disk0"
-    size = data.vsphere_virtual_machine.master_template.disks.0.size
+    size = 100
     thin_provisioned = data.vsphere_virtual_machine.master_template.disks.0.thin_provisioned
   }
 
@@ -257,12 +158,12 @@ resource "vsphere_virtual_machine" "master_node" {
   }
 
   extra_config = {
-    "guestinfo.ignition.config.data"           = base64encode(data.ignition_config.master_ign[each.key].rendered)
+    "guestinfo.ignition.config.data"           = base64encode(data.local_file.master_ignition[each.key].content)
+    "guestinfo.ignition.config.data.encoding"  = "base64"
     "guestinfo.afterburn.initrd.network-kargs" = "ip=${each.value.ip_address}::${var.ip_route}:${var.ip_mask}:${each.key}:ens192:off ${join(" ", formatlist("nameserver=%v", var.ip_dns))}"
   }
 
   tags = ["${vsphere_tag.Id.id}"]
-  depends_on = [vsphere_virtual_machine.bootstrap_node]
 }
 
 resource "vsphere_virtual_machine" "worker_node" {
@@ -275,6 +176,7 @@ resource "vsphere_virtual_machine" "worker_node" {
   guest_id         = data.vsphere_virtual_machine.worker_template.guest_id
   scsi_type        = data.vsphere_virtual_machine.worker_template.scsi_type
   folder           = data.vsphere_folder.folder.path
+  enable_disk_uuid = "true"
 
   wait_for_guest_net_timeout  = "0"
   wait_for_guest_net_routable = "false"
@@ -285,7 +187,7 @@ resource "vsphere_virtual_machine" "worker_node" {
 
   disk {
     label = "disk0"
-    size = data.vsphere_virtual_machine.worker_template.disks.0.size
+    size = 100
     thin_provisioned = data.vsphere_virtual_machine.worker_template.disks.0.thin_provisioned
   }
 
@@ -294,7 +196,8 @@ resource "vsphere_virtual_machine" "worker_node" {
   }
 
   extra_config = {
-    "guestinfo.ignition.config.data"           = base64encode(data.ignition_config.worker_ign[each.key].rendered)
+    "guestinfo.ignition.config.data"           = base64encode(data.local_file.worker_ignition[each.key].content)
+    "guestinfo.ignition.config.data.encoding"  = "base64"
     "guestinfo.afterburn.initrd.network-kargs" = "ip=${each.value.ip_address}::${var.ip_route}:${var.ip_mask}:${each.key}:ens192:off ${join(" ", formatlist("nameserver=%v", var.ip_dns))}"
   }
 

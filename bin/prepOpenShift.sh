@@ -101,7 +101,7 @@ then
 fi
 
 if [ "$RUNSTEP" -eq 1 ]; then
-  $SCRIPTDIR/tfConfig.py --file ${CFGDIR}/install-config.yaml --dir ${PKGROOT}/terraform
+  $SCRIPTDIR/tfConfig.py --file ${CFGDIR}/install-config.yaml --dir ${PKGROOT}/terraform --install ${CFGDIR}
   if [ $? -ne 0 ]; then
     echo "Could not create Terraform variables file."
     exit 1

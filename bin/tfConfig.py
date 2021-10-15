@@ -13,6 +13,9 @@ import dns.resolver
 import re
 import dns.reversename
 import getpass
+import ipaddress
+from pyVim.connect import SmartConnectNoSSL, Disconnect
+from pyVmomi import vim, vmodl, VmomiSupport
 
 class osConfig(object):
 
@@ -27,7 +30,11 @@ class osConfig(object):
         if self.getValue:
             self.getVarValue()
         elif self.cfgFile:
-            self.generateConfigs()
+            if self.installDir:
+                self.generateConfigs()
+            else:
+                print("Install directory required.")
+                sys.exit(1)
         elif self.nsxCfgFile:
             self.generateNsxConfig()
         elif self.setKey:
@@ -37,14 +44,11 @@ class osConfig(object):
     def generateConfigs(self):
         variableJson = {}
         variableJson['variable'] = {}
+        variableJson['variable'].update({'install_dir': {'default': self.installDir}})
         variableSaveFile = self.outputDir + '/variables.tf.json'
-        networkMask = 24
         foundMaster = False
         foundWorker = False
         foundBootstrap = False
-
-        switchName = input("Virtual Switch: ")
-        switchName = switchName.rstrip("\n")
 
         try:
             with open(self.cfgFile, 'r') as cfgYamlFile:
@@ -67,7 +71,53 @@ class osConfig(object):
                     if key == 'metadata':
                         variableJson['variable'].update({'cluster_name': {'default': cfgYaml['metadata']['name']}})
 
-                variableJson['variable'].update({'vsphere_dvs_switch': {'default': switchName}})
+                si = SmartConnectNoSSL(host=variableJson['variable']['vsphere_server']['default'],
+                                       user=variableJson['variable']['vsphere_user']['default'],
+                                       pwd=variableJson['variable']['vsphere_password']['default'],
+                                       port=443)
+
+                content = si.RetrieveContent()
+                datacenter = None
+                container = content.viewManager.CreateContainerView(content.rootFolder, [vim.Datacenter], True)
+                for c in container.view:
+                    if c.name == variableJson['variable']['vsphere_datacenter']['default']:
+                        datacenter = c
+                        break
+                container.Destroy()
+
+                folder = datacenter.networkFolder
+                dvsList = []
+                container = content.viewManager.CreateContainerView(folder, [vim.dvs.VmwareDistributedVirtualSwitch], True)
+                for managed_object_ref in container.view:
+                    dvsList.append(managed_object_ref.name)
+                container.Destroy()
+
+                while True:
+                    for i in range(len(dvsList)):
+                        print(" %d) %s" % (i+1,dvsList[i]))
+                    switchSelection = input("Virtual Switch [%d-%d]: " % (1, len(dvsList)))
+                    try:
+                        int(switchSelection)
+                    except ValueError:
+                        continue
+                    if int(switchSelection) < 1 or int(switchSelection) > len(dvsList):
+                        continue
+                    break
+
+                variableJson['variable'].update({'vsphere_dvs_switch': {'default': dvsList[int(switchSelection)-1]}})
+
+                networkMask = cfgYaml['networking']['machineNetwork'][0]['cidr']
+                machineNetwork = ipaddress.IPv4Network(networkMask)
+
+                defaultRouter = '.'.join(str(machineNetwork.network_address).split('.')[:-1]+["1"])
+                routeAnswer = input("Default router for network %s [%s]: " % (str(machineNetwork.network_address), defaultRouter))
+                if routeAnswer:
+                    defaultRouter = routeAnswer
+
+                variableJson['variable'].update({'ip_broadcast': {'default': str(machineNetwork.broadcast_address)}})
+                variableJson['variable'].update({'ip_mask': {'default': str(machineNetwork.netmask)}})
+                variableJson['variable'].update({'ip_prefix': {'default': str(machineNetwork.prefixlen)}})
+                variableJson['variable'].update({'ip_route': {'default': defaultRouter}})
 
                 variableJson['variable'].update({'bootstrap_spec': {}})
                 variableJson['variable']['bootstrap_spec']['type'] = 'map'
@@ -81,9 +131,6 @@ class osConfig(object):
                 variableJson['variable']['worker_spec']['type'] = 'map'
                 variableJson['variable']['worker_spec']['default'] = {}
 
-                networkMask = cfgYaml['networking']['machineNetwork'][0]['cidr']
-                networkMask = networkMask.split('/')[1]
-
                 domain = variableJson['variable']['cluster_name']['default'] + '.' + variableJson['variable']['domain_name']['default']
                 try:
                     soa_answer = dns.resolver.query(domain, "SOA", tcp=True)
@@ -95,27 +142,32 @@ class osConfig(object):
                     xfr_answer = dns.query.xfr(master_addr, domain)
                     zone = dns.zone.from_xfr(xfr_answer)
 
+                    variableJson['variable'].update({'ip_dns': {}})
+                    variableJson['variable']['ip_dns']['type'] = 'list(string)'
+                    variableJson['variable']['ip_dns']['default'] = []
+                    for name, ttl, rdata in zone.iterate_rdatas("NS"):
+                        dnsServerIp = dns.resolver.query(rdata.to_text(), "A", tcp=True)
+                        dnsServerIp = dnsServerIp[0].address
+                        variableJson['variable']['ip_dns']['default'].append(dnsServerIp)
+
                     for name, ttl, rdata in zone.iterate_rdatas("A"):
                         pattern = re.compile("^master[0-9]+$")
                         if pattern.match(name.to_text()):
                             foundMaster = True
                             variableJson['variable']['master_spec']['default'].update({name.to_text(): {}})
                             variableJson['variable']['master_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
-                            variableJson['variable']['master_spec']['default'][name.to_text()].update({'ip_mask': networkMask})
                             variableJson['variable']['master_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
                         pattern = re.compile("^bootstrap$")
                         if pattern.match(name.to_text()):
                             foundBootstrap = True
                             variableJson['variable']['bootstrap_spec']['default'].update({name.to_text(): {}})
                             variableJson['variable']['bootstrap_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
-                            variableJson['variable']['bootstrap_spec']['default'][name.to_text()].update({'ip_mask': networkMask})
                             variableJson['variable']['bootstrap_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
                         pattern = re.compile("^worker[0-9]+$")
                         if pattern.match(name.to_text()):
                             foundWorker = True
                             variableJson['variable']['worker_spec']['default'].update({name.to_text(): {}})
                             variableJson['variable']['worker_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
-                            variableJson['variable']['worker_spec']['default'][name.to_text()].update({'ip_mask': networkMask})
                             variableJson['variable']['worker_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
                 except Exception as e:
                     print("Could not query domain %s: %s" % (domain, str(e)))
@@ -270,6 +322,7 @@ class osConfig(object):
         parser.add_argument('--nsx', action='store')
         parser.add_argument('--set', action='store')
         parser.add_argument('--value', action='store')
+        parser.add_argument('--install', action='store')
         self.args = parser.parse_args()
         self.cfgFile = self.args.file
         self.outputDir = self.args.dir
@@ -277,6 +330,7 @@ class osConfig(object):
         self.nsxCfgFile = self.args.nsx
         self.setKey = self.args.set
         self.setValue = self.args.value
+        self.installDir = self.args.install
 
 def main():
     osConfig()

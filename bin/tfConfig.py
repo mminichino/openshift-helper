@@ -29,6 +29,10 @@ class osConfig(object):
             print("Terraform directory is required.")
             sys.exit(1)
 
+        if not self.templateFile:
+            homeDir = os.environ['HOME']
+            elf.templateFile = homeDir + "/.rhcos/rhcos-vmware.x86_64.ova"
+
         if self.getValue:
             self.getVarValue()
         elif self.cfgFile:
@@ -43,11 +47,11 @@ class osConfig(object):
             if self.setValue:
                 self.updateConfig()
 
-    def updateIgn(self, hostname, role, prefix, address, domain, route, dns = []):
+    def updateIgn(self, hostname, role, prefix = [], address = [], domain = None, route = None, dns = []):
         ignFile = self.installDir + '/' + role + '.ign'
         outFile = self.installDir + '/' + hostname + '.ign'
-        storageBlock = {}
-        ifcfg = """TYPE=Ethernet
+        storageBlock = []
+        ifcfg_a = """TYPE=Ethernet
 BOOTPROTO=none
 NAME=ens192
 DEVICE=ens192
@@ -61,17 +65,41 @@ DNS{{ loop.index }}={{ item }}{{ "
 " if not loop.last }}
 {%- endfor %}
 """
+        ifcfg_b = """TYPE=Ethernet
+BOOTPROTO=none
+NAME=ens224
+DEVICE=ens224
+ONBOOT=yes
+IPADDR={{ ip_address }}
+PREFIX={{ ip_prefix }}
+"""
 
-        t = Template(ifcfg)
-        ifcfgBlock = t.render(ip_address=address, ip_prefix=prefix, gateway=route, domain_name=domain, dns_list=dns)
+        t = Template(ifcfg_a)
+        ifcfgBlock = t.render(ip_address=address[0], ip_prefix=prefix[0], gateway=route, domain_name=domain, dns_list=dns)
         block_bytes = ifcfgBlock.encode('ascii')
         base64_bytes = base64.b64encode(block_bytes)
 
-        storageBlock['filesystem'] = 'root'
-        storageBlock['path'] = '/etc/sysconfig/network-scripts/ifcfg-ens192'
-        storageBlock['mode'] = 420
-        storageBlock['contents'] = {}
-        storageBlock['contents']['source'] = 'data:text/plain;charset=utf-8;base64,' + base64_bytes.decode('ascii')
+        firstNic = {}
+        firstNic['filesystem'] = 'root'
+        firstNic['path'] = '/etc/sysconfig/network-scripts/ifcfg-ens192'
+        firstNic['mode'] = 420
+        firstNic['contents'] = {}
+        firstNic['contents']['source'] = 'data:text/plain;charset=utf-8;base64,' + base64_bytes.decode('ascii')
+        storageBlock.append(firstNic)
+
+        if len(address) > 1:
+            t = Template(ifcfg_b)
+            ifcfgBlock = t.render(ip_address=address[1], ip_prefix=prefix[1])
+            block_bytes = ifcfgBlock.encode('ascii')
+            base64_bytes = base64.b64encode(block_bytes)
+
+            secondNic = {}
+            secondNic['filesystem'] = 'root'
+            secondNic['path'] = '/etc/sysconfig/network-scripts/ifcfg-ens224'
+            secondNic['mode'] = 420
+            secondNic['contents'] = {}
+            secondNic['contents']['source'] = 'data:text/plain;charset=utf-8;base64,' + base64_bytes.decode('ascii')
+            storageBlock.append(secondNic)
 
         try:
             with open(ignFile, 'r') as jsonFile:
@@ -84,7 +112,7 @@ DNS{{ loop.index }}={{ item }}{{ "
         if 'storage' not in ignData:
             ignData['storage'] = {}
             ignData['storage']['files'] = []
-        ignData['storage']['files'].append(storageBlock)
+        ignData['storage']['files'].extend(storageBlock)
 
         try:
             with open(outFile, 'w') as jsonFile:
@@ -100,162 +128,247 @@ DNS{{ loop.index }}={{ item }}{{ "
         variableJson['variable'] = {}
         variableJson['variable'].update({'install_dir': {'default': self.installDir}})
         variableJson['variable'].update({'infra_id': {'default': self.infraId}})
+        variableJson['variable'].update({'ova_file': {'default': self.templateFile}})
         variableSaveFile = self.outputDir + '/variables.tf.json'
         foundMaster = False
         foundWorker = False
         foundBootstrap = False
         masterCount = 0
         workerCount = 0
+        prefix_list = []
+        cfgYaml = None
 
         try:
             with open(self.cfgFile, 'r') as cfgYamlFile:
                 cfgYaml = yaml.safe_load(cfgYamlFile)
-                for key in cfgYaml:
-                    if key == 'platform':
-                        variableJson['variable'].update({'vsphere_user': {'default': cfgYaml['platform']['vsphere']['username']}})
-                        variableJson['variable'].update({'vsphere_password': {'default': cfgYaml['platform']['vsphere']['password']}})
-                        variableJson['variable'].update({'vsphere_server': {'default': cfgYaml['platform']['vsphere']['vCenter']}})
-                        variableJson['variable'].update({'vsphere_datacenter': {'default': cfgYaml['platform']['vsphere']['datacenter']}})
-                        variableJson['variable'].update({'vsphere_cluster': {'default': cfgYaml['platform']['vsphere']['cluster']}})
-                        variableJson['variable'].update({'vsphere_datastore': {'default': cfgYaml['platform']['vsphere']['defaultDatastore']}})
-                        variableJson['variable'].update({'vsphere_network': {'default': cfgYaml['platform']['vsphere']['network']}})
-                    if key == 'compute':
-                        variableJson['variable'].update({'num_worker': {'default': cfgYaml['compute'][0]['replicas']}})
-                    if key == 'controlPlane':
-                        variableJson['variable'].update({'num_master': {'default': cfgYaml['controlPlane']['replicas']}})
-                    if key == 'baseDomain':
-                        variableJson['variable'].update({'domain_name': {'default': cfgYaml['baseDomain']}})
-                    if key == 'metadata':
-                        variableJson['variable'].update({'cluster_name': {'default': cfgYaml['metadata']['name']}})
+        except OSError as e:
+                print("Can not open install config file: %s" % str(e))
+                sys.exit(1)
 
-                si = SmartConnectNoSSL(host=variableJson['variable']['vsphere_server']['default'],
-                                       user=variableJson['variable']['vsphere_user']['default'],
-                                       pwd=variableJson['variable']['vsphere_password']['default'],
-                                       port=443)
+        for key in cfgYaml:
+            if key == 'platform':
+                variableJson['variable'].update({'vsphere_user': {'default': cfgYaml['platform']['vsphere']['username']}})
+                variableJson['variable'].update({'vsphere_password': {'default': cfgYaml['platform']['vsphere']['password']}})
+                variableJson['variable'].update({'vsphere_server': {'default': cfgYaml['platform']['vsphere']['vCenter']}})
+                variableJson['variable'].update({'vsphere_datacenter': {'default': cfgYaml['platform']['vsphere']['datacenter']}})
+                variableJson['variable'].update({'vsphere_cluster': {'default': cfgYaml['platform']['vsphere']['cluster']}})
+                variableJson['variable'].update({'vsphere_datastore': {'default': cfgYaml['platform']['vsphere']['defaultDatastore']}})
+                variableJson['variable'].update({'vsphere_network': {}})
+                variableJson['variable']['vsphere_network']['type'] = 'list(string)'
+                variableJson['variable']['vsphere_network']['default'] = []
+                variableJson['variable']['vsphere_network']['default'].append(cfgYaml['platform']['vsphere']['network'])
+            if key == 'compute':
+                variableJson['variable'].update({'num_worker': {'default': cfgYaml['compute'][0]['replicas']}})
+            if key == 'controlPlane':
+                variableJson['variable'].update({'num_master': {'default': cfgYaml['controlPlane']['replicas']}})
+            if key == 'baseDomain':
+                variableJson['variable'].update({'domain_name': {'default': cfgYaml['baseDomain']}})
+            if key == 'metadata':
+                variableJson['variable'].update({'cluster_name': {'default': cfgYaml['metadata']['name']}})
 
-                content = si.RetrieveContent()
-                datacenter = None
-                container = content.viewManager.CreateContainerView(content.rootFolder, [vim.Datacenter], True)
-                for c in container.view:
-                    if c.name == variableJson['variable']['vsphere_datacenter']['default']:
-                        datacenter = c
-                        break
-                container.Destroy()
+        si = SmartConnectNoSSL(host=variableJson['variable']['vsphere_server']['default'],
+                               user=variableJson['variable']['vsphere_user']['default'],
+                               pwd=variableJson['variable']['vsphere_password']['default'],
+                               port=443)
 
-                folder = datacenter.networkFolder
-                dvsList = []
-                container = content.viewManager.CreateContainerView(folder, [vim.dvs.VmwareDistributedVirtualSwitch], True)
-                for managed_object_ref in container.view:
-                    dvsList.append(managed_object_ref.name)
-                container.Destroy()
+        content = si.RetrieveContent()
+        datacenter = None
+        container = content.viewManager.CreateContainerView(content.rootFolder, [vim.Datacenter], True)
+        for c in container.view:
+            if c.name == variableJson['variable']['vsphere_datacenter']['default']:
+                datacenter = c
+                break
+        container.Destroy()
 
-                while True:
-                    for i in range(len(dvsList)):
-                        print(" %d) %s" % (i+1,dvsList[i]))
-                    switchSelection = input("Virtual Switch [%d-%d]: " % (1, len(dvsList)))
-                    try:
-                        int(switchSelection)
-                    except ValueError:
-                        continue
-                    if int(switchSelection) < 1 or int(switchSelection) > len(dvsList):
-                        continue
+        folder = datacenter.networkFolder
+        dvsList = []
+        container = content.viewManager.CreateContainerView(folder, [vim.dvs.VmwareDistributedVirtualSwitch], True)
+        for managed_object_ref in container.view:
+            dvsList.append(managed_object_ref.name)
+        container.Destroy()
+
+        pgList = []
+        container = content.viewManager.CreateContainerView(folder, [vim.dvs.DistributedVirtualPortgroup], True)
+        for managed_object_ref in container.view:
+            pgList.append(managed_object_ref.name)
+        container.Destroy()
+        pgList = sorted(set(pgList))
+
+        while True:
+            for i in range(len(dvsList)):
+                print(" %d) %s" % (i+1,dvsList[i]))
+            switchSelection = input("Virtual Switch [%d-%d]: " % (1, len(dvsList)))
+            try:
+                int(switchSelection)
+            except ValueError:
+                continue
+            if int(switchSelection) < 1 or int(switchSelection) > len(dvsList):
+                continue
+            break
+
+        variableJson['variable'].update({'vsphere_dvs_switch': {'default': dvsList[int(switchSelection)-1]}})
+
+        networkMask = cfgYaml['networking']['machineNetwork'][0]['cidr']
+        machineNetwork = ipaddress.IPv4Network(networkMask)
+
+        defaultRouter = '.'.join(str(machineNetwork.network_address).split('.')[:-1]+["1"])
+        routeAnswer = input("Default router for network %s [%s]: " % (str(machineNetwork.network_address), defaultRouter))
+        if routeAnswer:
+            defaultRouter = routeAnswer
+
+        prefix_list.append(str(machineNetwork.prefixlen))
+
+        if self.dualNic:
+            while True:
+                for i in range(len(pgList)):
+                    print(" %d) %s" % (i+1,pgList[i]))
+                pgSelection = input("Virtual Switch [%d-%d]: " % (1, len(pgList)))
+                try:
+                    int(pgSelection)
+                except ValueError:
+                    continue
+                if int(pgSelection) < 1 or int(pgSelection) > len(pgList):
+                    continue
+                break
+            variableJson['variable']['vsphere_network']['default'].append(pgList[int(pgSelection)-1])
+            while True:
+                network_bits = input("Network Prefix Length for second interface: ")
+                try:
+                    int(network_bits)
+                except ValueError:
+                    continue
+                if int(network_bits) < 1 or int(network_bits) > 30:
+                    continue
+                break
+            prefix_list.append(network_bits)
+
+        variableJson['variable'].update({'ip_broadcast': {'default': str(machineNetwork.broadcast_address)}})
+        variableJson['variable'].update({'ip_mask': {'default': str(machineNetwork.netmask)}})
+        variableJson['variable'].update({'ip_prefix': {'default': str(machineNetwork.prefixlen)}})
+        variableJson['variable'].update({'ip_route': {'default': defaultRouter}})
+
+        variableJson['variable'].update({'bootstrap_spec': {}})
+        variableJson['variable']['bootstrap_spec']['type'] = 'map'
+        variableJson['variable']['bootstrap_spec']['default'] = {}
+
+        variableJson['variable'].update({'master_spec': {}})
+        variableJson['variable']['master_spec']['type'] = 'map'
+        variableJson['variable']['master_spec']['default'] = {}
+
+        variableJson['variable'].update({'worker_spec': {}})
+        variableJson['variable']['worker_spec']['type'] = 'map'
+        variableJson['variable']['worker_spec']['default'] = {}
+
+        domain = variableJson['variable']['cluster_name']['default'] + '.' + variableJson['variable']['domain_name']['default']
+        try:
+            soa_answer = dns.resolver.query(domain, "SOA", tcp=True)
+            soa_host = soa_answer[0].mname
+
+            master_answer = dns.resolver.query(soa_host, "A", tcp=True)
+            master_addr = master_answer[0].address
+
+            xfr_answer = dns.query.xfr(master_addr, domain)
+            zone = dns.zone.from_xfr(xfr_answer)
+
+            variableJson['variable'].update({'ip_dns': {}})
+            variableJson['variable']['ip_dns']['type'] = 'list(string)'
+            variableJson['variable']['ip_dns']['default'] = []
+            for name, ttl, rdata in zone.iterate_rdatas("NS"):
+                dnsServerIp = dns.resolver.query(rdata.to_text(), "A", tcp=True)
+                dnsServerIp = dnsServerIp[0].address
+                variableJson['variable']['ip_dns']['default'].append(dnsServerIp)
+
+            zone_records = zone.iterate_rdatas("A")
+            zone_list = {}
+            for name, ttl, rdata in zone_records:
+                zone_list.update({name.to_text(): rdata.to_text()})
+        except Exception as e:
+            print("Could not query domain %s: %s" % (domain, str(e)))
+            sys.exit(1)
+
+        if 'bootstrap' in zone_list:
+            foundBootstrap = True
+            address_list = []
+            hostBlock = {'bootstrap': {}}
+            hostBlock['bootstrap']['host_name'] = 'bootstrap'
+            hostBlock['bootstrap']['nic1'] = {}
+            hostBlock['bootstrap']['nic1']['ip_address'] = zone_list['bootstrap']
+            address_list.append(zone_list['bootstrap'])
+            if self.dualNic:
+                if 'bootstrap-lb' in zone_list:
+                    hostBlock['bootstrap']['nic2'] = {}
+                    hostBlock['bootstrap']['nic2']['ip_address'] = zone_list['bootstrap-lb']
+                    address_list.append(zone_list['bootstrap-lb'])
+            variableJson['variable']['bootstrap_spec']['default'].update(hostBlock)
+            self.updateIgn('bootstrap', 'bootstrap', prefix_list, address_list,
+                           domain, defaultRouter, variableJson['variable']['ip_dns']['default'])
+
+        index = -1
+        while True:
+            index = index + 1
+            node_name = "master" + str(index)
+            if node_name in zone_list:
+                foundMaster = True
+                masterCount = masterCount + 1
+                address_list = []
+                hostBlock = {node_name: {}}
+                hostBlock[node_name]['host_name'] = node_name
+                hostBlock[node_name]['nic1'] = {}
+                hostBlock[node_name]['nic1']['ip_address'] = zone_list[node_name]
+                address_list.append(zone_list[node_name])
+                if self.dualNic:
+                    lb_node_name = node_name + '-lb'
+                    if lb_node_name in zone_list:
+                        hostBlock[node_name]['nic2'] = {}
+                        hostBlock[node_name]['nic2']['ip_address'] = zone_list[lb_node_name]
+                        address_list.append(zone_list[lb_node_name])
+                variableJson['variable']['master_spec']['default'].update(hostBlock)
+                self.updateIgn(node_name, 'master', prefix_list, address_list,
+                               domain, defaultRouter, variableJson['variable']['ip_dns']['default'])
+            else:
+                break
+
+            index = -1
+            while True:
+                index = index + 1
+                node_name = "worker" + str(index)
+                if node_name in zone_list:
+                    foundWorker = True
+                    workerCount = workerCount + 1
+                    address_list = []
+                    hostBlock = {node_name: {}}
+                    hostBlock[node_name]['host_name'] = node_name
+                    hostBlock[node_name]['nic1'] = {}
+                    hostBlock[node_name]['nic1']['ip_address'] = zone_list[node_name]
+                    address_list.append(zone_list[node_name])
+                    if self.dualNic:
+                        lb_node_name = node_name + '-lb'
+                        if lb_node_name in zone_list:
+                            hostBlock[node_name]['nic2'] = {}
+                            hostBlock[node_name]['nic2']['ip_address'] = zone_list[lb_node_name]
+                            address_list.append(zone_list[lb_node_name])
+                    variableJson['variable']['worker_spec']['default'].update(hostBlock)
+                    self.updateIgn(node_name, 'worker', prefix_list, address_list,
+                                   domain, defaultRouter, variableJson['variable']['ip_dns']['default'])
+                else:
                     break
 
-                variableJson['variable'].update({'vsphere_dvs_switch': {'default': dvsList[int(switchSelection)-1]}})
+            variableJson['variable'].update({'master_count': {'default': masterCount}})
+            variableJson['variable'].update({'worker_count': {'default': workerCount}})
 
-                networkMask = cfgYaml['networking']['machineNetwork'][0]['cidr']
-                machineNetwork = ipaddress.IPv4Network(networkMask)
 
-                defaultRouter = '.'.join(str(machineNetwork.network_address).split('.')[:-1]+["1"])
-                routeAnswer = input("Default router for network %s [%s]: " % (str(machineNetwork.network_address), defaultRouter))
-                if routeAnswer:
-                    defaultRouter = routeAnswer
+            if not foundMaster or not foundWorker or not foundBootstrap:
+                print("Could not find all required nodes for domain %s." % domain)
+                sys.exit(1)
 
-                variableJson['variable'].update({'ip_broadcast': {'default': str(machineNetwork.broadcast_address)}})
-                variableJson['variable'].update({'ip_mask': {'default': str(machineNetwork.netmask)}})
-                variableJson['variable'].update({'ip_prefix': {'default': str(machineNetwork.prefixlen)}})
-                variableJson['variable'].update({'ip_route': {'default': defaultRouter}})
-
-                variableJson['variable'].update({'bootstrap_spec': {}})
-                variableJson['variable']['bootstrap_spec']['type'] = 'map'
-                variableJson['variable']['bootstrap_spec']['default'] = {}
-
-                variableJson['variable'].update({'master_spec': {}})
-                variableJson['variable']['master_spec']['type'] = 'map'
-                variableJson['variable']['master_spec']['default'] = {}
-
-                variableJson['variable'].update({'worker_spec': {}})
-                variableJson['variable']['worker_spec']['type'] = 'map'
-                variableJson['variable']['worker_spec']['default'] = {}
-
-                domain = variableJson['variable']['cluster_name']['default'] + '.' + variableJson['variable']['domain_name']['default']
-                try:
-                    soa_answer = dns.resolver.query(domain, "SOA", tcp=True)
-                    soa_host = soa_answer[0].mname
-
-                    master_answer = dns.resolver.query(soa_host, "A", tcp=True)
-                    master_addr = master_answer[0].address
-
-                    xfr_answer = dns.query.xfr(master_addr, domain)
-                    zone = dns.zone.from_xfr(xfr_answer)
-
-                    variableJson['variable'].update({'ip_dns': {}})
-                    variableJson['variable']['ip_dns']['type'] = 'list(string)'
-                    variableJson['variable']['ip_dns']['default'] = []
-                    for name, ttl, rdata in zone.iterate_rdatas("NS"):
-                        dnsServerIp = dns.resolver.query(rdata.to_text(), "A", tcp=True)
-                        dnsServerIp = dnsServerIp[0].address
-                        variableJson['variable']['ip_dns']['default'].append(dnsServerIp)
-
-                    for name, ttl, rdata in zone.iterate_rdatas("A"):
-                        pattern = re.compile("^master[0-9]+$")
-                        if pattern.match(name.to_text()):
-                            foundMaster = True
-                            masterCount = masterCount + 1
-                            variableJson['variable']['master_spec']['default'].update({name.to_text(): {}})
-                            variableJson['variable']['master_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
-                            variableJson['variable']['master_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
-                            self.updateIgn(name.to_text(), 'master', str(machineNetwork.prefixlen), rdata.to_text(),
-                                           domain, defaultRouter, variableJson['variable']['ip_dns']['default'])
-                        pattern = re.compile("^bootstrap$")
-                        if pattern.match(name.to_text()):
-                            foundBootstrap = True
-                            variableJson['variable']['bootstrap_spec']['default'].update({name.to_text(): {}})
-                            variableJson['variable']['bootstrap_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
-                            variableJson['variable']['bootstrap_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
-                            self.updateIgn(name.to_text(), 'bootstrap', str(machineNetwork.prefixlen), rdata.to_text(),
-                                           domain, defaultRouter, variableJson['variable']['ip_dns']['default'])
-                        pattern = re.compile("^worker[0-9]+$")
-                        if pattern.match(name.to_text()):
-                            foundWorker = True
-                            workerCount = workerCount + 1
-                            variableJson['variable']['worker_spec']['default'].update({name.to_text(): {}})
-                            variableJson['variable']['worker_spec']['default'][name.to_text()].update({'ip_address': rdata.to_text()})
-                            variableJson['variable']['worker_spec']['default'][name.to_text()].update({'host_name': name.to_text()})
-                            self.updateIgn(name.to_text(), 'worker', str(machineNetwork.prefixlen), rdata.to_text(),
-                                           domain, defaultRouter, variableJson['variable']['ip_dns']['default'])
-
-                    variableJson['variable'].update({'master_count': {'default': masterCount}})
-                    variableJson['variable'].update({'worker_count': {'default': workerCount}})
-                except Exception as e:
-                    print("Could not query domain %s: %s" % (domain, str(e)))
+            try:
+                with open(variableSaveFile, 'w') as saveFile:
+                    json.dump(variableJson, saveFile, indent=4)
+                    saveFile.write("\n")
+                    saveFile.close()
+            except OSError as e:
+                    print("Could not write variable file: %s" % str(e))
                     sys.exit(1)
-
-                if not foundMaster or not foundWorker or not foundBootstrap:
-                    print("Could not find all required nodes for domain %s." % domain)
-                    sys.exit(1)
-
-                try:
-                    with open(variableSaveFile, 'w') as saveFile:
-                        json.dump(variableJson, saveFile, indent=4)
-                        saveFile.write("\n")
-                        saveFile.close()
-                except OSError as e:
-                        print("Could not write variable file: %s" % str(e))
-                        sys.exit(1)
-        except OSError as e:
-            print("Can not open install config file: %s" % str(e))
-            sys.exit(1)
 
     def getVarValue(self):
         variableFile = self.outputDir + '/variables.tf.json'
@@ -392,6 +505,8 @@ DNS{{ loop.index }}={{ item }}{{ "
         parser.add_argument('--value', action='store')
         parser.add_argument('--install', action='store')
         parser.add_argument('--id', action='store')
+        parser.add_argument('--template', action='store')
+        parser.add_argument('--dual', action='store_true')
         self.args = parser.parse_args()
         self.cfgFile = self.args.file
         self.outputDir = self.args.dir
@@ -401,6 +516,8 @@ DNS{{ loop.index }}={{ item }}{{ "
         self.setValue = self.args.value
         self.installDir = self.args.install
         self.infraId = self.args.id
+        self.templateFile = self.args.template
+        self.dualNic = self.args.dual
 
 def main():
     osConfig()

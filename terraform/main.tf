@@ -115,8 +115,8 @@ resource "vsphere_virtual_machine" "bootstrap_node" {
     thin_provisioned = data.vsphere_virtual_machine.bootstrap_template.disks.0.thin_provisioned
   }
 
-  clone {
-    template_uuid = data.vsphere_virtual_machine.bootstrap_template.id
+  ovf_deploy {
+    local_ovf_path = "${var.ova_file}"
   }
 
   extra_config = {
@@ -153,8 +153,8 @@ resource "vsphere_virtual_machine" "master_node" {
     thin_provisioned = data.vsphere_virtual_machine.master_template.disks.0.thin_provisioned
   }
 
-  clone {
-    template_uuid = data.vsphere_virtual_machine.master_template.id
+  ovf_deploy {
+    local_ovf_path = "${var.ova_file}"
   }
 
   extra_config = {
@@ -191,8 +191,8 @@ resource "vsphere_virtual_machine" "worker_node" {
     thin_provisioned = data.vsphere_virtual_machine.worker_template.disks.0.thin_provisioned
   }
 
-  clone {
-    template_uuid = data.vsphere_virtual_machine.worker_template.id
+  ovf_deploy {
+    local_ovf_path = "${var.ova_file}"
   }
 
   extra_config = {

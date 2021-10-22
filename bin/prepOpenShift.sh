@@ -10,6 +10,14 @@ SCRIPTDIR=$(cd $(dirname $0) && pwd)
 PKGROOT=$(dirname $SCRIPTDIR)
 TEMPLATE="install-config-template.yaml"
 
+function get_rhcos {
+[ ! -d $BASEDIR/.rhcos ] && mkdir $BASEDIR/.rhcos
+echo -n "Downloading RHCOS OVA ... "
+curl -s https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/latest/latest/rhcos-vmware.x86_64.ova -o $BASEDIR/.rhcos/rhcos-vmware.x86_64.ova
+echo "Done."
+exit
+}
+
 function wipe_install_dir {
 echo -n "Wipe install directory? [y/n]: "
 read ANSWER
@@ -68,7 +76,7 @@ if [ $? -ne 0 ]; then
    exit 1
 fi
 
-while getopts "sce:d:t:wrb" opt
+while getopts "sce:d:t:wrbg" opt
 do
   case $opt in
     t)
@@ -95,6 +103,9 @@ do
       ;;
     b)
       destroy_bootstrap
+      ;;
+    g)
+      get_rhcos
       ;;
     \?)
       exit 1
@@ -170,7 +181,7 @@ fi
 
 if [ "$RUNSTEP" -eq 1 ]; then
   INFRA_ID=$(jq -r .infraID ${CFGDIR}/metadata.json)
-  $SCRIPTDIR/tfConfig.py --file ${CFGDIR}/.install-config-copy.yaml --dir ${PKGROOT}/terraform --install ${CFGDIR} --id $INFRA_ID
+  $SCRIPTDIR/tfConfig.py --file ${CFGDIR}/.install-config-copy.yaml --dir ${PKGROOT}/terraform --install ${CFGDIR} --id $INFRA_ID --template $BASEDIR/.rhcos/rhcos-vmware.x86_64.ova
   if [ $? -ne 0 ]; then
     echo "Could not create Terraform variables file."
     exit 1

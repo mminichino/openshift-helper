@@ -35,7 +35,8 @@ data "vsphere_distributed_virtual_switch" "dvs" {
 }
 
 data "vsphere_network" "network" {
-  name          = var.vsphere_network
+  for_each = var.vsphere_network
+  name          = each.value
   datacenter_id = data.vsphere_datacenter.dc.id
   distributed_virtual_switch_uuid = data.vsphere_distributed_virtual_switch.dvs.id
 }
@@ -105,8 +106,11 @@ resource "vsphere_virtual_machine" "bootstrap_node" {
   wait_for_guest_net_timeout  = "0"
   wait_for_guest_net_routable = "false"
 
-  network_interface {
-    network_id = data.vsphere_network.network.id
+  dynamic "network_interface" {
+    for_each = var.vsphere_network
+    content {
+      network_id = data.vsphere_network.network[each.value].id
+    }
   }
 
   disk {
@@ -122,7 +126,7 @@ resource "vsphere_virtual_machine" "bootstrap_node" {
   extra_config = {
     "guestinfo.ignition.config.data"           = base64encode(data.local_file.bootstrap_ignition[each.key].content)
     "guestinfo.ignition.config.data.encoding"  = "base64"
-    "guestinfo.afterburn.initrd.network-kargs" = "ip=${each.value.ip_address}::${var.ip_route}:${var.ip_mask}:${each.key}:ens192:off ${join(" ", formatlist("nameserver=%v", var.ip_dns))}"
+    "guestinfo.afterburn.initrd.network-kargs" = "ip=${each.value.nic1.ip_address}::${var.ip_route}:${var.ip_mask}:${each.key}:ens192:off ${join(" ", formatlist("nameserver=%v", var.ip_dns))}"
   }
 
   tags = ["${vsphere_tag.Id.id}"]
@@ -143,8 +147,11 @@ resource "vsphere_virtual_machine" "master_node" {
   wait_for_guest_net_timeout  = "0"
   wait_for_guest_net_routable = "false"
 
-  network_interface {
-    network_id = data.vsphere_network.network.id
+  dynamic "network_interface" {
+    for_each = var.vsphere_network
+    content {
+      network_id = data.vsphere_network.network[each.value].id
+    }
   }
 
   disk {
@@ -160,7 +167,7 @@ resource "vsphere_virtual_machine" "master_node" {
   extra_config = {
     "guestinfo.ignition.config.data"           = base64encode(data.local_file.master_ignition[each.key].content)
     "guestinfo.ignition.config.data.encoding"  = "base64"
-    "guestinfo.afterburn.initrd.network-kargs" = "ip=${each.value.ip_address}::${var.ip_route}:${var.ip_mask}:${each.key}:ens192:off ${join(" ", formatlist("nameserver=%v", var.ip_dns))}"
+    "guestinfo.afterburn.initrd.network-kargs" = "ip=${each.value.nic1.ip_address}::${var.ip_route}:${var.ip_mask}:${each.key}:ens192:off ${join(" ", formatlist("nameserver=%v", var.ip_dns))}"
   }
 
   tags = ["${vsphere_tag.Id.id}"]
@@ -181,8 +188,11 @@ resource "vsphere_virtual_machine" "worker_node" {
   wait_for_guest_net_timeout  = "0"
   wait_for_guest_net_routable = "false"
 
-  network_interface {
-    network_id = data.vsphere_network.network.id
+  dynamic "network_interface" {
+    for_each = var.vsphere_network
+    content {
+      network_id = data.vsphere_network.network[each.value].id
+    }
   }
 
   disk {
@@ -198,7 +208,7 @@ resource "vsphere_virtual_machine" "worker_node" {
   extra_config = {
     "guestinfo.ignition.config.data"           = base64encode(data.local_file.worker_ignition[each.key].content)
     "guestinfo.ignition.config.data.encoding"  = "base64"
-    "guestinfo.afterburn.initrd.network-kargs" = "ip=${each.value.ip_address}::${var.ip_route}:${var.ip_mask}:${each.key}:ens192:off ${join(" ", formatlist("nameserver=%v", var.ip_dns))}"
+    "guestinfo.afterburn.initrd.network-kargs" = "ip=${each.value.nic1.ip_address}::${var.ip_route}:${var.ip_mask}:${each.key}:ens192:off ${join(" ", formatlist("nameserver=%v", var.ip_dns))}"
   }
 
   tags = ["${vsphere_tag.Id.id}"]

@@ -36,7 +36,7 @@ data "vsphere_distributed_virtual_switch" "dvs" {
 
 data "vsphere_network" "network" {
   for_each = var.vsphere_network
-  name          = each.value
+  name          = each.value.network
   datacenter_id = data.vsphere_datacenter.dc.id
   distributed_virtual_switch_uuid = data.vsphere_distributed_virtual_switch.dvs.id
 }
@@ -109,7 +109,7 @@ resource "vsphere_virtual_machine" "bootstrap_node" {
   dynamic "network_interface" {
     for_each = var.vsphere_network
     content {
-      network_id = data.vsphere_network.network[each.value].id
+      network_id = data.vsphere_network.network[network_interface.key].id
     }
   }
 
@@ -119,8 +119,8 @@ resource "vsphere_virtual_machine" "bootstrap_node" {
     thin_provisioned = data.vsphere_virtual_machine.bootstrap_template.disks.0.thin_provisioned
   }
 
-  ovf_deploy {
-    local_ovf_path = "${var.ova_file}"
+  clone {
+    template_uuid = data.vsphere_virtual_machine.master_template.id
   }
 
   extra_config = {
@@ -150,7 +150,7 @@ resource "vsphere_virtual_machine" "master_node" {
   dynamic "network_interface" {
     for_each = var.vsphere_network
     content {
-      network_id = data.vsphere_network.network[each.value].id
+      network_id = data.vsphere_network.network[network_interface.key].id
     }
   }
 
@@ -160,8 +160,8 @@ resource "vsphere_virtual_machine" "master_node" {
     thin_provisioned = data.vsphere_virtual_machine.master_template.disks.0.thin_provisioned
   }
 
-  ovf_deploy {
-    local_ovf_path = "${var.ova_file}"
+  clone {
+    template_uuid = data.vsphere_virtual_machine.master_template.id
   }
 
   extra_config = {
@@ -191,7 +191,7 @@ resource "vsphere_virtual_machine" "worker_node" {
   dynamic "network_interface" {
     for_each = var.vsphere_network
     content {
-      network_id = data.vsphere_network.network[each.value].id
+      network_id = data.vsphere_network.network[network_interface.key].id
     }
   }
 
@@ -201,8 +201,8 @@ resource "vsphere_virtual_machine" "worker_node" {
     thin_provisioned = data.vsphere_virtual_machine.worker_template.disks.0.thin_provisioned
   }
 
-  ovf_deploy {
-    local_ovf_path = "${var.ova_file}"
+  clone {
+    template_uuid = data.vsphere_virtual_machine.master_template.id
   }
 
   extra_config = {

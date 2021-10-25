@@ -154,9 +154,10 @@ PREFIX={{ ip_prefix }}
                 variableJson['variable'].update({'vsphere_cluster': {'default': cfgYaml['platform']['vsphere']['cluster']}})
                 variableJson['variable'].update({'vsphere_datastore': {'default': cfgYaml['platform']['vsphere']['defaultDatastore']}})
                 variableJson['variable'].update({'vsphere_network': {}})
-                variableJson['variable']['vsphere_network']['type'] = 'list(string)'
-                variableJson['variable']['vsphere_network']['default'] = []
-                variableJson['variable']['vsphere_network']['default'].append(cfgYaml['platform']['vsphere']['network'])
+                variableJson['variable']['vsphere_network']['type'] = 'map'
+                variableJson['variable']['vsphere_network']['default'] = {}
+                variableJson['variable']['vsphere_network']['default']['nic1'] = {}
+                variableJson['variable']['vsphere_network']['default']['nic1'].update({'network': cfgYaml['platform']['vsphere']['network']})
             if key == 'compute':
                 variableJson['variable'].update({'num_worker': {'default': cfgYaml['compute'][0]['replicas']}})
             if key == 'controlPlane':
@@ -230,7 +231,8 @@ PREFIX={{ ip_prefix }}
                 if int(pgSelection) < 1 or int(pgSelection) > len(pgList):
                     continue
                 break
-            variableJson['variable']['vsphere_network']['default'].append(pgList[int(pgSelection)-1])
+            variableJson['variable']['vsphere_network']['default']['nic2'] = {}
+            variableJson['variable']['vsphere_network']['default']['nic2'].update({'network': pgList[int(pgSelection)-1]})
             while True:
                 network_bits = input("Network Prefix Length for second interface: ")
                 try:

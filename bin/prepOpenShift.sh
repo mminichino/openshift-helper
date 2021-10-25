@@ -181,7 +181,7 @@ fi
 
 if [ "$RUNSTEP" -eq 1 ]; then
   INFRA_ID=$(jq -r .infraID ${CFGDIR}/metadata.json)
-  $SCRIPTDIR/tfConfig.py --file ${CFGDIR}/.install-config-copy.yaml --dir ${PKGROOT}/terraform --install ${CFGDIR} --id $INFRA_ID --template $BASEDIR/.rhcos/rhcos-vmware.x86_64.ova
+  $SCRIPTDIR/tfConfig.py --file ${CFGDIR}/.install-config-copy.yaml --dir ${PKGROOT}/terraform --install ${CFGDIR} --id $INFRA_ID --template $BASEDIR/.rhcos/rhcos-vmware.x86_64.ova --dual
   if [ $? -ne 0 ]; then
     echo "Could not create Terraform variables file."
     exit 1

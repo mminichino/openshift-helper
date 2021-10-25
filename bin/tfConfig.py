@@ -31,7 +31,7 @@ class osConfig(object):
 
         if not self.templateFile:
             homeDir = os.environ['HOME']
-            elf.templateFile = homeDir + "/.rhcos/rhcos-vmware.x86_64.ova"
+            self.templateFile = homeDir + "/.rhcos/rhcos-vmware.x86_64.ova"
 
         if self.getValue:
             self.getVarValue()

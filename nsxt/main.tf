@@ -147,13 +147,55 @@ resource "nsxt_policy_lb_pool" "ocp4-https" {
   }
 }
 
+data "nsxt_policy_edge_cluster" "edge-cluster" {
+  display_name = "${var.edge_cluster}"
+}
+
+resource "nsxt_policy_tier1_gateway" "ocp4-t1-gw" {
+  display_name = "${var.cluster_name}-t1-gw"
+  description = "Terraform provisioned Tier-1 Gateway"
+  failover_mode = "NON_PREEMPTIVE"
+  edge_cluster_path = data.nsxt_policy_edge_cluster.edge-cluster.path
+  route_advertisement_types = [
+    "TIER1_STATIC_ROUTES",
+    "TIER1_CONNECTED",
+    "TIER1_NAT",
+    "TIER1_LB_VIP",
+    "TIER1_LB_SNAT",
+    "TIER1_IPSEC_LOCAL_ENDPOINT"]
+  pool_allocation = "LB_SMALL"
+}
+
+resource "nsxt_policy_tier1_gateway_interface" "ocp4-t1-gw-if1" {
+  display_name           = "${var.cluster_name}-if1"
+  description            = "Terraform provisioned Tier-1 Gateway Service Interface"
+  gateway_path           = nsxt_policy_tier1_gateway.ocp4-t1-gw.path
+  segment_path           = "/infra/segments/${var.segment_name}"
+  subnets                = ["${var.segment_address}"]
+  mtu                    = 1500
+  depends_on = [nsxt_policy_tier1_gateway.ocp4-t1-gw]
+}
+
+resource "nsxt_policy_static_route" "ocp4-t1-gw-default-route" {
+  display_name = "${var.cluster_name}-default-route"
+  gateway_path = nsxt_policy_tier1_gateway.ocp4-t1-gw.path
+  network      = "0.0.0.0/0"
+
+  next_hop {
+    admin_distance = "1"
+    ip_address     = "${var.segment_router}"
+  }
+  depends_on = [nsxt_policy_tier1_gateway.ocp4-t1-gw]
+}
+
 resource "nsxt_policy_lb_service" "ocp4-lb" {
   display_name      = "ocp4-lb"
   description       = "Terraform provisioned Service"
-  connectivity_path = "/infra/tier-1s/${var.gateway_name}"
+  connectivity_path = nsxt_policy_tier1_gateway.ocp4-t1-gw.path
   size              = "SMALL"
   enabled           = true
   error_log_level   = "INFO"
+  depends_on = [nsxt_policy_tier1_gateway_interface.ocp4-t1-gw-if1]
 }
 
 # Create Admin Virtual Server

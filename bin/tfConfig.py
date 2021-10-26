@@ -212,11 +212,6 @@ PREFIX={{ ip_prefix }}
         networkMask = cfgYaml['networking']['machineNetwork'][0]['cidr']
         machineNetwork = ipaddress.IPv4Network(networkMask)
 
-        defaultRouter = '.'.join(str(machineNetwork.network_address).split('.')[:-1]+["1"])
-        routeAnswer = input("Default router for network %s [%s]: " % (str(machineNetwork.network_address), defaultRouter))
-        if routeAnswer:
-            defaultRouter = routeAnswer
-
         prefix_list.append(str(machineNetwork.prefixlen))
 
         if self.dualNic:
@@ -247,7 +242,6 @@ PREFIX={{ ip_prefix }}
         variableJson['variable'].update({'ip_broadcast': {'default': str(machineNetwork.broadcast_address)}})
         variableJson['variable'].update({'ip_mask': {'default': str(machineNetwork.netmask)}})
         variableJson['variable'].update({'ip_prefix': {'default': str(machineNetwork.prefixlen)}})
-        variableJson['variable'].update({'ip_route': {'default': defaultRouter}})
 
         variableJson['variable'].update({'bootstrap_spec': {}})
         variableJson['variable']['bootstrap_spec']['type'] = 'map'
@@ -287,6 +281,26 @@ PREFIX={{ ip_prefix }}
         except Exception as e:
             print("Could not query domain %s: %s" % (domain, str(e)))
             sys.exit(1)
+
+        defaultRouter=None
+        if self.dualNic:
+            if 'bootstrap-lb' in zone_list:
+                defaultRouter = '.'.join(zone_list['bootstrap-lb'].split('.')[:-1] + ["1"])
+            else:
+                print("Error: Dual NIC requires hostname-lb DNS entries: bootstrap-lb not found.")
+                sys.exit(1)
+        else:
+            if 'bootstrap' in zone_list:
+                defaultRouter = '.'.join(zone_list['bootstrap'].split('.')[:-1]+["1"])
+            else:
+                print("Error: Cluster configuration requires DNS entries: bootstrap not found.")
+                sys.exit(1)
+
+        routeAnswer = input("Default router [%s]: " % defaultRouter)
+        if routeAnswer:
+            defaultRouter = routeAnswer
+
+        variableJson['variable'].update({'ip_route': {'default': defaultRouter}})
 
         if 'bootstrap' in zone_list:
             foundBootstrap = True
@@ -402,8 +416,17 @@ PREFIX={{ ip_prefix }}
         mgranswer = input("NSX Manager: ")
         mgranswer = mgranswer.rstrip("\n")
 
-        gwName = input("T1 Gateway Name: ")
-        gwName = gwName.rstrip("\n")
+        ecName = input("Edge Cluster Name: ")
+        ecName = ecName.rstrip("\n")
+
+        segmentName = input("Segment Name: ")
+        segmentName = segmentName.rstrip("\n")
+
+        addressName = input("Gateway Service Address: ")
+        addressName = addressName.rstrip("\n")
+
+        routerName = input("Gateway Default Router: ")
+        routerName = routerName.rstrip("\n")
 
         try:
             with open(self.nsxCfgFile, 'r') as cfgYamlFile:
@@ -420,7 +443,10 @@ PREFIX={{ ip_prefix }}
                 variableJson['variable'].update({'nsxt_user': {'default': useranswer}})
                 variableJson['variable'].update({'nsxt_password': {'default': passanswer}})
                 variableJson['variable'].update({'nsxt_manager': {'default': mgranswer}})
-                variableJson['variable'].update({'gateway_name': {'default': gwName}})
+                variableJson['variable'].update({'edge_cluster': {'default': ecName}})
+                variableJson['variable'].update({'segment_name': {'default': segmentName}})
+                variableJson['variable'].update({'segment_address': {'default': addressName}})
+                variableJson['variable'].update({'segment_router': {'default': routerName}})
 
                 domain = variableJson['variable']['cluster_name']['default'] + '.' + variableJson['variable']['domain_name']['default']
                 try:

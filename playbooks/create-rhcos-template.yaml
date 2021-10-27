@@ -6,14 +6,12 @@
 # var:vsphere_password
 # var:vmware_folder
 # var:vmware_dc
-# var:config_dir
-# var:root_template
-# var:dir
+# var:vmware_ds
+# var:vmware_cluster
+# var:vmware_network
 #
 - name: Create Templates
   hosts: localhost
   gather_facts: no
   roles:
-    - remove-templates
-    - create-templates
-    - ignition-config
+    - get-rhcos-template

@@ -4,9 +4,13 @@ vsphere:
   password: "{{ ask_password if ask_password is defined else lookup('vars',vmware_password) if vmware_password is defined else vsphere_password if vsphere_password is defined }}"
   folder: "{{ vmware_folder if vmware_folder is defined else '' }}"
   datacenter: "{{ vmware_dc if vmware_dc is defined else '' }}"
+  cluster: "{{ vmware_cluster if vmware_cluster is defined else '' }}"
+  datastore: "{{ vmware_ds if vmware_ds is defined else '' }}"
   dvs: "{{ vmware_dvs if vmware_dvs is defined else '' }}"
+  network: "{{ vmware_network if vmware_network is defined else '' }}"
 config_dir: "{{ dir if dir is defined else lookup('env','HOME') + '/oslab' }}"
 core_template: "{{ root_template if root_template is defined else 'rhcos-template' }}"
+base_dir: "{{ lookup('env','HOME') | default('/var/tmp', true) }}"
 file:
   bootstrap: "{{ config_dir + '/bootstrap.64' }}"
   master: "{{ config_dir + '/master.64' }}"

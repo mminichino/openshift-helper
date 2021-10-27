@@ -25,7 +25,7 @@ class osConfig(object):
         self.configuration = {}
         self.parse_args()
 
-        if not self.outputDir:
+        if not self.outputDir and not self.yamlFile:
             print("Terraform directory is required.")
             sys.exit(1)
 
@@ -33,7 +33,9 @@ class osConfig(object):
             homeDir = os.environ['HOME']
             self.templateFile = homeDir + "/.rhcos/rhcos-vmware.x86_64.ova"
 
-        if self.getValue:
+        if self.yamlFile and self.getValue:
+            print(self.getYamlValue())
+        elif self.getValue:
             self.getVarValue()
         elif self.cfgFile:
             if self.installDir and self.infraId:
@@ -404,6 +406,34 @@ GATEWAY={{ gateway }}
             print("Can not open terraform variable file: %s" % str(e))
             sys.exit(1)
 
+    def getYamlValue(self):
+        yamlFile = self.yamlFile
+        getArray = self.getValue.split('.')
+        cfgYaml = None
+        num = len(getArray)
+        count = 1
+        pointer = {}
+
+        try:
+            with open(yamlFile, 'r') as configYaml:
+                cfgYaml = yaml.safe_load(configYaml)
+                configYaml.close()
+        except OSError as e:
+                print("Can not open YAML file: %s" % str(e))
+                sys.exit(1)
+
+        pointer = cfgYaml
+        for key in getArray:
+            try:
+                pointer = pointer[key]
+            except:
+                print("Key %s not found." % key)
+                sys.exit(1)
+            if count == num:
+                return pointer
+            else:
+                count = count + 1
+
     def generateNsxConfig(self):
         variableJson = {}
         variableJson['variable'] = {}
@@ -540,6 +570,7 @@ GATEWAY={{ gateway }}
         parser.add_argument('--id', action='store')
         parser.add_argument('--template', action='store')
         parser.add_argument('--dual', action='store_true')
+        parser.add_argument('--yaml', action='store')
         self.args = parser.parse_args()
         self.cfgFile = self.args.file
         self.outputDir = self.args.dir
@@ -551,6 +582,7 @@ GATEWAY={{ gateway }}
         self.infraId = self.args.id
         self.templateFile = self.args.template
         self.dualNic = self.args.dual
+        self.yamlFile = self.args.yaml
 
 def main():
     osConfig()

@@ -9,12 +9,58 @@ RUNSTEP=1
 SCRIPTDIR=$(cd $(dirname $0) && pwd)
 PKGROOT=$(dirname $SCRIPTDIR)
 TEMPLATE="install-config-template.yaml"
+PRINT_USAGE="Usage: $0 [ -s | -c | -e env_name | -d dir | -t template | -w | -r | -b | -g ]"
+
+function print_usage {
+if [ -n "$PRINT_USAGE" ]; then
+   echo "$PRINT_USAGE"
+fi
+}
+
+function err_exit {
+   if [ -n "$1" ]; then
+      echo "[!] Error: $1"
+   else
+      print_usage
+   fi
+   exit 1
+}
 
 function get_rhcos {
 [ ! -d $BASEDIR/.rhcos ] && mkdir $BASEDIR/.rhcos
+
+which ansible-helper.py >/dev/null 2>&1
+[ $? -ne 0 ] && err_exit "Ansible Helper is required for this operation."
+
+vsphere_cluster=$($SCRIPTDIR/tfConfig.py --get platform.vsphere.cluster --yaml ${HOME}/${TEMPLATE})
+[ $? -ne 0 ] && err_exit "Can not get cluster parameter from ${HOME}/${TEMPLATE}."
+vsphere_datacenter=$($SCRIPTDIR/tfConfig.py --get platform.vsphere.datacenter --yaml ${HOME}/${TEMPLATE})
+[ $? -ne 0 ] && err_exit "Can not get datacenter parameter from ${HOME}/${TEMPLATE}."
+vsphere_datastore=$($SCRIPTDIR/tfConfig.py --get platform.vsphere.defaultDatastore --yaml ${HOME}/${TEMPLATE})
+[ $? -ne 0 ] && err_exit "Can not get datastore parameter from ${HOME}/${TEMPLATE}."
+vsphere_username=$($SCRIPTDIR/tfConfig.py --get platform.vsphere.username --yaml ${HOME}/${TEMPLATE})
+[ $? -ne 0 ] && err_exit "Can not get username parameter from ${HOME}/${TEMPLATE}."
+vsphere_password=$($SCRIPTDIR/tfConfig.py --get platform.vsphere.password --yaml ${HOME}/${TEMPLATE})
+[ $? -ne 0 ] && err_exit "Can not get password parameter from ${HOME}/${TEMPLATE}."
+vsphere_host=$($SCRIPTDIR/tfConfig.py --get platform.vsphere.vCenter --yaml ${HOME}/${TEMPLATE})
+[ $? -ne 0 ] && err_exit "Can not get host parameter from ${HOME}/${TEMPLATE}."
+vsphere_network=$($SCRIPTDIR/tfConfig.py --get platform.vsphere.network --yaml ${HOME}/${TEMPLATE})
+[ $? -ne 0 ] && err_exit "Can not get host parameter from ${HOME}/${TEMPLATE}."
+
+export HELPER_PATH=$PKGROOT/playbooks
 echo -n "Downloading RHCOS OVA ... "
-curl -s https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/latest/latest/rhcos-vmware.x86_64.ova -o $BASEDIR/.rhcos/rhcos-vmware.x86_64.ova
-echo "Done."
+ansible-helper.py create-rhcos-template.yaml --vmware_host $vsphere_host \
+                                             --vmware_user $vsphere_username \
+                                             --vsphere_password $vsphere_password \
+                                             --vmware_dc $vsphere_datacenter \
+                                             --vmware_ds $vsphere_datastore \
+                                             --vmware_cluster $vsphere_cluster \
+                                             --vmware_network $vsphere_network
+if [ $? -ne 0 ]; then
+  err_exit "Can not download RHCOS OVA."
+else
+  echo "Done."
+fi
 exit
 }
 
@@ -108,6 +154,7 @@ do
       get_rhcos
       ;;
     \?)
+      print_usage
       exit 1
       ;;
   esac

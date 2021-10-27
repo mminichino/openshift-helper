@@ -58,7 +58,9 @@ DEVICE=ens192
 ONBOOT=yes
 IPADDR={{ ip_address }}
 PREFIX={{ ip_prefix }}
+{%- if nics == 1 %}
 GATEWAY={{ gateway }}
+{%- endif %}
 DOMAIN={{ domain_name }}
 {% for item in dns_list -%}
 DNS{{ loop.index }}={{ item }}{{ "
@@ -72,10 +74,13 @@ DEVICE=ens224
 ONBOOT=yes
 IPADDR={{ ip_address }}
 PREFIX={{ ip_prefix }}
+{%- if nics > 1 %}
+GATEWAY={{ gateway }}
+{%- endif %}
 """
 
         t = Template(ifcfg_a)
-        ifcfgBlock = t.render(ip_address=address[0], ip_prefix=prefix[0], gateway=route, domain_name=domain, dns_list=dns)
+        ifcfgBlock = t.render(ip_address=address[0], ip_prefix=prefix[0], gateway=route, domain_name=domain, dns_list=dns, nics=len(address))
         block_bytes = ifcfgBlock.encode('ascii')
         base64_bytes = base64.b64encode(block_bytes)
 
@@ -89,7 +94,7 @@ PREFIX={{ ip_prefix }}
 
         if len(address) > 1:
             t = Template(ifcfg_b)
-            ifcfgBlock = t.render(ip_address=address[1], ip_prefix=prefix[1])
+            ifcfgBlock = t.render(ip_address=address[1], ip_prefix=prefix[1], gateway=route, nics=len(address))
             block_bytes = ifcfgBlock.encode('ascii')
             base64_bytes = base64.b64encode(block_bytes)
 
